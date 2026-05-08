@@ -171,14 +171,6 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
     return null;
   }
 
-  /**
-   * Body size limit for requests. Default: {@link BodyHandler#DEFAULT_BODY_LIMIT}. Use -1 for
-   * unlimited.
-   */
-  protected long getBodyLimit() {
-    return BodyHandler.DEFAULT_BODY_LIMIT;
-  }
-
   /** Default request timeout in milliseconds. Default: 100000 (100s). */
   protected long getDefaultTimeoutMs() {
     return 100000;
@@ -190,6 +182,18 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
    */
   protected String getNgsildPathPattern() {
     return null;
+  }
+
+  /**
+   * Returns true for routes that stream the request body directly (e.g. bulk ingestion). For these
+   * routes the root handler pauses the request instead of buffering it, so streaming parsers can
+   * consume the data without first loading the entire payload into memory.
+   *
+   * <p>Default: {@code false} — all routes are buffered. Override in subclasses to mark specific
+   * paths as streaming (e.g. {@code path.contains("/ingestion/")}).
+   */
+  protected boolean isStreamingRoute(String path) {
+    return false;
   }
 
   /**
@@ -326,12 +330,16 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                 long timeout = config().getLong("timeout", getDefaultTimeoutMs());
                 routerBuilder.rootHandler(TimeoutHandler.create(timeout, 408));
 
-                BodyHandler bodyHandler = BodyHandler.create().setHandleFileUploads(true);
-                long bodyLimit = getBodyLimit();
-                if (bodyLimit != BodyHandler.DEFAULT_BODY_LIMIT) {
-                  bodyHandler.setBodyLimit(bodyLimit);
-                }
-                routerBuilder.rootHandler(bodyHandler);
+                BodyHandler jsonBodyHandler = BodyHandler.create().setHandleFileUploads(false);
+                routerBuilder.rootHandler(
+                    ctx -> {
+                      if (isStreamingRoute(ctx.request().path())) {
+                        ctx.request().pause();
+                        ctx.next();
+                      } else {
+                        jsonBodyHandler.handle(ctx);
+                      }
+                    });
 
                 LOGGER.debug("Registering controllers...");
                 RouterBuilderOptions factoryOptions =
