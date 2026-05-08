@@ -331,15 +331,7 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                 routerBuilder.rootHandler(TimeoutHandler.create(timeout, 408));
 
                 BodyHandler jsonBodyHandler = BodyHandler.create().setHandleFileUploads(false);
-                routerBuilder.rootHandler(
-                    ctx -> {
-                      if (isStreamingRoute(ctx.request().path())) {
-                        ctx.request().pause();
-                        ctx.next();
-                      } else {
-                        jsonBodyHandler.handle(ctx);
-                      }
-                    });
+                configureRootHandlerBuilder(routerBuilder, jsonBodyHandler);
 
                 LOGGER.debug("Registering controllers...");
                 RouterBuilderOptions factoryOptions =
@@ -431,6 +423,14 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                     "Failed to create RouterBuilder from OpenAPI spec: {}",
                     failure.getMessage(),
                     failure));
+  }
+
+  protected RouterBuilder configureRootHandlerBuilder(
+      RouterBuilder routerBuilder, BodyHandler jsonBodyHandler) {
+
+    routerBuilder.rootHandler(jsonBodyHandler::handle);
+
+    return routerBuilder;
   }
 
   @Override
