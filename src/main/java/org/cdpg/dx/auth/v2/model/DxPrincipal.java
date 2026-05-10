@@ -1,6 +1,7 @@
 package org.cdpg.dx.auth.v2.model;
 
-import java.util.Objects;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 import java.util.Set;
 
 /**
@@ -13,8 +14,8 @@ import java.util.Set;
  *   <li>Exactly one effective {@code sub} per principal; {@code orgId} is optional.
  *   <li>{@code authorizationRoles} is populated for the plain-user path only; empty for delegation
  *       and app principals (their effective scopes live in {@code directScopes}, already capped).
- *   <li>{@code auditRoles} is separate from {@code authorizationRoles}: audit never feeds back
- *       into authorization.
+ *   <li>{@code auditRoles} is separate from {@code authorizationRoles}: audit never feeds back into
+ *       authorization.
  *   <li>Delegation and app are mutually exclusive: a principal cannot be both.
  * </ul>
  */
@@ -30,7 +31,7 @@ public final class DxPrincipal {
   private final String appId;
 
   private DxPrincipal(Builder b) {
-    this.authenticatedSub = Objects.requireNonNull(b.authenticatedSub, "authenticatedSub");
+    this.authenticatedSub = b.authenticatedSub;
     this.authenticatedOrgId = b.authenticatedOrgId;
     this.delegatorSub = b.delegatorSub;
     this.delegatorOrgId = b.delegatorOrgId;
@@ -59,12 +60,10 @@ public final class DxPrincipal {
     return delegatorOrgId != null ? delegatorOrgId : authenticatedOrgId;
   }
 
-  /** The user who actually presented credentials. For audit logging only. */
   public String getAuthenticatedSub() {
     return authenticatedSub;
   }
 
-  /** The actual org of the authenticating user. For audit logging only. */
   public String getAuthenticatedOrgId() {
     return authenticatedOrgId;
   }
@@ -95,6 +94,45 @@ public final class DxPrincipal {
 
   public Set<String> getDirectScopes() {
     return directScopes;
+  }
+
+  /** Convert this principal to JsonObject (for API response, logging, context storage, etc.) */
+  public JsonObject toJson() {
+
+    JsonObject json =
+        new JsonObject()
+            .put("sub", getSub())
+            .put("organisationId", getOrganisationId())
+            .put("authenticatedSub", authenticatedSub)
+            .put("authenticatedOrgId", authenticatedOrgId)
+            .put("isDelegation", isDelegation())
+            .put("isApp", isApp())
+            .put("isDirectUser", isDirectUser())
+            .put("appId", appId);
+
+    // authorizationRoles
+    JsonArray authRolesArr = new JsonArray();
+    for (DxRole role : authorizationRoles) {
+      authRolesArr.add(role.name());
+    }
+
+    // auditRoles
+    JsonArray auditRolesArr = new JsonArray();
+    for (DxRole role : auditRoles) {
+      auditRolesArr.add(role.name());
+    }
+
+    // directScopes
+    JsonArray scopesArr = new JsonArray();
+    for (String scope : directScopes) {
+      scopesArr.add(scope);
+    }
+
+    json.put("authorizationRoles", authRolesArr);
+    json.put("auditRoles", auditRolesArr);
+    json.put("directScopes", scopesArr);
+
+    return json;
   }
 
   public static Builder builder() {

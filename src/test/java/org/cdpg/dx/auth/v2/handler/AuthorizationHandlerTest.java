@@ -35,8 +35,7 @@ class AuthorizationHandlerTest {
 
     FakeCtx() {
       // getter/putter routed to our map
-      when(mock.get(anyString()))
-          .thenAnswer(inv -> data.get(inv.<String>getArgument(0)));
+      when(mock.get(anyString())).thenAnswer(inv -> data.get(inv.<String>getArgument(0)));
       when(mock.put(anyString(), any()))
           .thenAnswer(
               inv -> {
@@ -91,9 +90,7 @@ class AuthorizationHandlerTest {
     @DisplayName("passes when any of multiple required scopes is held")
     void anyOfMany() {
       FakeCtx ctx = new FakeCtx().withPrincipal(plainUser(DxRole.CONSUMER));
-      handler
-          .forScopes(Scopes.ASSET_PUBLISH, Scopes.DATA_ACCESS)
-          .handle(ctx.mock);
+      handler.forScopes(Scopes.ASSET_PUBLISH, Scopes.DATA_ACCESS).handle(ctx.mock);
       assertTrue(ctx.nextCalled);
     }
 
@@ -131,8 +128,7 @@ class AuthorizationHandlerTest {
       FakeCtx ctx = new FakeCtx().withPrincipal(plainUser(DxRole.COS_ADMIN));
       handler
           .forScopesWithContext(
-              ScopeRule.platform(Scopes.ORG_MANAGEMENT),
-              ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
+              ScopeRule.platform(Scopes.ORG_MANAGEMENT), ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
           .handle(ctx.mock);
 
       assertTrue(ctx.nextCalled);
@@ -149,8 +145,7 @@ class AuthorizationHandlerTest {
       FakeCtx ctx = new FakeCtx().withPrincipal(plainUser(DxRole.ORG_ADMIN));
       handler
           .forScopesWithContext(
-              ScopeRule.platform(Scopes.ORG_MANAGEMENT),
-              ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
+              ScopeRule.platform(Scopes.ORG_MANAGEMENT), ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
           .handle(ctx.mock);
 
       assertTrue(ctx.nextCalled);
@@ -174,8 +169,7 @@ class AuthorizationHandlerTest {
 
       handler
           .forScopesWithContext(
-              ScopeRule.platform(Scopes.ORG_MANAGEMENT),
-              ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
+              ScopeRule.platform(Scopes.ORG_MANAGEMENT), ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
           .handle(ctx.mock);
 
       AuthorizationContext auth = (AuthorizationContext) ctx.data.get(AuthorizationContext.KEY);
@@ -193,9 +187,7 @@ class AuthorizationHandlerTest {
               .build();
       FakeCtx ctx = new FakeCtx().withPrincipal(p);
 
-      handler
-          .forScopesWithContext(ScopeRule.self(Scopes.OWN_ASSET_MANAGEMENT))
-          .handle(ctx.mock);
+      handler.forScopesWithContext(ScopeRule.self(Scopes.OWN_ASSET_MANAGEMENT)).handle(ctx.mock);
 
       AuthorizationContext auth = (AuthorizationContext) ctx.data.get(AuthorizationContext.KEY);
       assertEquals(AuthLevel.SELF, auth.getLevel());
@@ -206,9 +198,7 @@ class AuthorizationHandlerTest {
     @DisplayName("no rule matches → 403")
     void noMatchForbids() {
       FakeCtx ctx = new FakeCtx().withPrincipal(plainUser(DxRole.CONSUMER));
-      handler
-          .forScopesWithContext(ScopeRule.platform(Scopes.ORG_MANAGEMENT))
-          .handle(ctx.mock);
+      handler.forScopesWithContext(ScopeRule.platform(Scopes.ORG_MANAGEMENT)).handle(ctx.mock);
       assertInstanceOf(DxForbiddenException.class, ctx.failedWith);
     }
   }

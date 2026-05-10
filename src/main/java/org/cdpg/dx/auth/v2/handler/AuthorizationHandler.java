@@ -11,18 +11,18 @@ import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 
 /**
- * Authorization entry point. Produces route-level handlers that read a {@link DxPrincipal} from
- * the routing context and enforce scope (or role) requirements.
+ * Authorization entry point. Produces route-level handlers that read a {@link DxPrincipal} from the
+ * routing context and enforce scope (or role) requirements.
  *
  * <p>Reads the principal at context key {@link #PRINCIPAL_KEY}. Callers must ensure an upstream
- * authentication step has populated it (e.g. {@link AuthenticationHandler}).
+ * authentication step has populated it (e.g. {@link AuthenticationHandlerV2}).
  *
- * <p>Path-agnostic by design — the same handler runs for plain-user, delegation, and app
- * principals because effective scope resolution is uniform.
+ * <p>Path-agnostic by design — the same handler runs for plain-user, delegation, and app principals
+ * because effective scope resolution is uniform.
  */
 public final class AuthorizationHandler {
 
-  /** Routing-context key under which {@link AuthenticationHandler} publishes the principal. */
+  /** Routing-context key under which {@link AuthenticationHandlerV2} publishes the principal. */
   public static final String PRINCIPAL_KEY = "dxPrincipal";
 
   private final RoleScopeRegistry registry;
