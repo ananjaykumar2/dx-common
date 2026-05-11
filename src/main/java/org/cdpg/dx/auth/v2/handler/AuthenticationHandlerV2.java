@@ -51,22 +51,19 @@ public final class AuthenticationHandlerV2 implements AuthenticationHandlerInter
   @Override
   public void handle(RoutingContext ctx) {
     String authHeader = ctx.request().getHeader("Authorization");
-    String appIdHeader = ctx.request().getHeader("X-App-Id");
-    String delegatorHeader = ctx.request().getHeader("X-Delegator-Id");
+    String delegatorHeader = ctx.request().getHeader("delegationId");
 
     boolean hasBearer = authHeader != null && authHeader.startsWith("Bearer ");
     boolean hasBasic = authHeader != null && authHeader.startsWith("Basic ");
-    boolean hasAppHeader = appIdHeader != null && !appIdHeader.isBlank();
 
-    boolean appPath = hasAppHeader || hasBasic;
-    if (appPath && hasBearer) {
+    if (hasBasic && hasBearer) {
       ctx.fail(
           new DxBadRequestException(
               "Ambiguous credentials: send either JWT or app credentials, not both"));
       return;
     }
 
-    if (appPath) {
+    if (hasBasic) {
       appResolver.resolve(ctx);
       return;
     }
