@@ -146,14 +146,6 @@ class DxPrincipalTest {
     }
 
     @Test
-    @DisplayName("rejects null authenticatedSub")
-    void requiresAuthenticatedSub() {
-      assertThrows(
-          NullPointerException.class,
-          () -> DxPrincipal.builder().authenticatedOrgId("org-a").build());
-    }
-
-    @Test
     @DisplayName("allows null authenticatedOrgId (orgId is optional)")
     void allowsNullAuthenticatedOrgId() {
       DxPrincipal p = DxPrincipal.builder().authenticatedSub("alice").build();

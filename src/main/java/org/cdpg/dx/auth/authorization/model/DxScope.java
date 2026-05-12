@@ -5,13 +5,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public enum DxScope {
-  USER_MANAGEMENT("user_management"),
-  ORG_ADMIN_ACCESS("org_admin_access"),
-  DATA_ACCESS("data_access"),
-  COS_ADMIN_ACCESS("cos_admin_access"),
-  COMPUTE_MANAGEMENT("compute_management"),
-  CREDIT_MANAGEMENT("credit_management"),
-  ASSET_MANAGEMENT("asset_management"),
+  USER_MANAGEMENT("user-management"),
+  ORG_ADMIN_ACCESS("org-admin-access"),
+  DATA_ACCESS("data-access"),
+  COS_ADMIN_ACCESS("cos-admin-access"),
+  COMPUTE_MANAGEMENT("compute-management"),
+  CREDIT_MANAGEMENT("credit-management"),
+  ASSET_MANAGEMENT("asset-management"),
   WILDCARD("*");
 
   private final String scope;

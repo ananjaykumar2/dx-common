@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Future;
-import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpMethod;
@@ -22,7 +21,6 @@ import io.vertx.core.json.jackson.DatabindCodec;
 import io.vertx.core.net.JksOptions;
 import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
-import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.AuthenticationHandler;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.CorsHandler;
@@ -33,7 +31,6 @@ import io.vertx.serviceproxy.HelperUtils;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
@@ -43,12 +40,11 @@ import org.cdpg.dx.auth.authentication.client.JwksResolver;
 import org.cdpg.dx.auth.authentication.handler.CombinedAuthHandler;
 import org.cdpg.dx.auth.authentication.handler.MultiIssuerJwtAuthHandler;
 import org.cdpg.dx.auth.authentication.handler.OptionalMultiIssuerJwtAuthHandler;
-import org.cdpg.dx.auth.v2.handler.AuthorizationHandler;
+import org.cdpg.dx.auth.v2.handler.AuthenticationHandlerV2;
 import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.common.FailureHandler;
 import org.cdpg.dx.common.HttpStatusCode;
 import org.cdpg.dx.common.URNGenerator;
-import org.cdpg.dx.common.exception.DxUnauthorizedException;
 import org.cdpg.dx.common.util.BlockingExecutionUtil;
 
 /**
@@ -92,40 +88,11 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
   protected URNGenerator urnGenerator;
   private HttpServer server;
   private Router router;
+  protected JwksResolver jwksResolver;
 
   // =====================================================================
   // Abstract methods — subclasses MUST provide
   // =====================================================================
-
-  private static void handleAuthV2Whoami(RoutingContext ctx) {
-    DxPrincipal principal = ctx.get(AuthorizationHandler.PRINCIPAL_KEY);
-    if (principal == null) {
-      ctx.fail(new DxUnauthorizedException("No authenticated principal"));
-      return;
-    }
-    JsonArray roles = new JsonArray();
-    principal.getAuthorizationRoles().forEach(r -> roles.add(r.name()));
-    JsonArray auditRoles = new JsonArray();
-    principal.getAuditRoles().forEach(r -> auditRoles.add(r.name()));
-    JsonObject body =
-        new JsonObject()
-            .put("sub", principal.getSub())
-            .put("organisationId", principal.getOrganisationId())
-            .put("authenticatedSub", principal.getAuthenticatedSub())
-            .put("authenticatedOrgId", principal.getAuthenticatedOrgId())
-            .put("isApp", principal.isApp())
-            .put("isDelegation", principal.isDelegation())
-            .put("isDirectUser", principal.isDirectUser())
-            .put("appId", principal.getAppId())
-            .put("authorizationRoles", roles)
-            .put("auditRoles", auditRoles)
-            .put("directScopes", new JsonArray(new ArrayList<>(principal.getDirectScopes())));
-    ctx.response()
-        .putHeader("content-type", "application/json")
-        .setStatusCode(200)
-        .end(body.encodePrettily());
-  }
-
   /** Utility for building standardized error responses. */
   public static String errorResponse(HttpStatusCode code, URNGenerator urnGenerator) {
     String urn = urnGenerator.generateUrn(code.getPath());
@@ -169,6 +136,13 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
    */
   protected Supplier<Future<JsonObject>> getJwksInternalProvider() {
     return null;
+  }
+  /**
+   * Body size limit for requests. Default: {@link BodyHandler#DEFAULT_BODY_LIMIT}. Use -1 for
+   * unlimited.
+   */
+  protected long getBodyLimit() {
+    return BodyHandler.DEFAULT_BODY_LIMIT;
   }
 
   /** Default request timeout in milliseconds. Default: 100000 (100s). */
@@ -240,10 +214,9 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
   }
 
   /**
-   * Optional v2 auth dispatcher. Subclasses return a configured {@link
-   * org.cdpg.dx.auth.v2.handler.AuthenticationHandler} to enable the diagnostic route {@code GET
-   * /auth/v2/whoami}, which echoes the resolved {@link DxPrincipal} as JSON. Default: {@code null}
-   * — the diagnostic route is not mounted.
+   * Optional v2 auth dispatcher. Subclasses return a configured {@link AuthenticationHandlerV2} to
+   * enable the diagnostic route {@code GET /auth/v2/whoami}, which echoes the resolved {@link
+   * DxPrincipal} as JSON. Default: {@code null} — the diagnostic route is not mounted.
    *
    * <p>The base chains {@link OptionalMultiIssuerJwtAuthHandler} before this handler so Bearer
    * tokens are validated when present, without failing non-Bearer requests. Returns 401/403/400 via
@@ -252,7 +225,7 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
    * <p>Use this to test the v2 stack end-to-end against a running server before migrating
    * individual endpoints.
    */
-  protected Handler<RoutingContext> getAuthV2Handler() {
+  protected AuthenticationHandlerV2 getAuthV2Handler() {
     return null;
   }
 
@@ -299,6 +272,10 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
     // Init shared worker executor
     BlockingExecutionUtil.initialize(vertx);
 
+    // Create JWKS resolver before controllers so subclasses can use it in createControllers()
+    jwksResolver =
+        new JwksResolver(vertx, config().getJsonObject("issuers"), getJwksInternalProvider());
+
     // Create controllers
     List<ApiController> controllers = createControllers(vertx, config(), this.urnGenerator);
 
@@ -306,10 +283,6 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
         .onSuccess(
             routerBuilder -> {
               try {
-                // Create JWKS resolver
-                JwksResolver jwksResolver =
-                    new JwksResolver(
-                        vertx, config().getJsonObject("issuers"), getJwksInternalProvider());
 
                 // Auth handlers — auto-wire CombinedAuthHandler when AppId is configured
                 MultiIssuerJwtAuthHandler jwtHandler = new MultiIssuerJwtAuthHandler(jwksResolver);
@@ -317,14 +290,20 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                     new OptionalMultiIssuerJwtAuthHandler(jwksResolver);
 
                 AppIdAuthHandler appIdAuthHandler = getAppIdAuthHandler();
-                AuthenticationHandler authHandler;
-                if (appIdAuthHandler != null) {
-                  authHandler = new CombinedAuthHandler(appIdAuthHandler, jwtHandler);
-                  LOGGER.debug(
-                      "AppId auth enabled — using CombinedAuthHandler for authorization + appIdAuth");
-                } else {
-                  authHandler = createMainAuthHandler(jwksResolver);
-                }
+                  AuthenticationHandlerV2 authV2 = getAuthV2Handler();
+
+                  AuthenticationHandler mainAuthHandler;
+                  if (authV2 != null) {
+                      mainAuthHandler = authV2;
+                      LOGGER.debug(
+                              "v2 auth enabled — using AuthenticationHandlerV2 for authorization scheme");
+                  } else if (appIdAuthHandler != null) {
+                      mainAuthHandler = new CombinedAuthHandler(appIdAuthHandler, jwtHandler);
+                      LOGGER.debug(
+                              "AppId auth enabled — using CombinedAuthHandler for authorization + appIdAuth");
+                  } else {
+                      mainAuthHandler = createMainAuthHandler(jwksResolver);
+                  }
 
                 LOGGER.debug("Adding platform handlers...");
                 long timeout = config().getLong("timeout", getDefaultTimeoutMs());
@@ -339,10 +318,10 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                 routerBuilder.setOptions(factoryOptions);
 
                 // OpenAPI security handlers
-                routerBuilder.securityHandler("authorization", authHandler);
+                routerBuilder.securityHandler("authorization", mainAuthHandler);
                 routerBuilder.securityHandler("optionalAuth", optionalAuthHandler);
-                if (appIdAuthHandler != null) {
-                  routerBuilder.securityHandler("appIdAuth", authHandler);
+                if (appIdAuthHandler != null && authV2 == null) {
+                  routerBuilder.securityHandler("appIdAuth", mainAuthHandler);
                 }
 
                 controllers.forEach(controller -> controller.register(routerBuilder));
@@ -379,18 +358,6 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
 
                 // Allow subclasses to add custom routes
                 configureAdditionalRoutes(router, config());
-
-                // v2 auth diagnostic route — opt-in via getAuthV2Handler()
-                Handler<RoutingContext> authV2Handler = getAuthV2Handler();
-                if (authV2Handler != null) {
-                  router
-                      .route("/auth/v2/whoami")
-                      .handler(optionalAuthHandler)
-                      .handler(authV2Handler)
-                      .handler(AbstractApiServerVerticle::handleAuthV2Whoami);
-                  LOGGER.info("v2 auth diagnostic mounted at GET /auth/v2/whoami");
-                }
-
                 LOGGER.debug("Starting HTTP server...");
                 HttpServerOptions serverOptions = new HttpServerOptions();
                 configureSsl(serverOptions);

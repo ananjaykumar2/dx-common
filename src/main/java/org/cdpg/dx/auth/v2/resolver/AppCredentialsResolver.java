@@ -6,6 +6,9 @@ import java.util.Base64;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.v2.handler.AuthorizationHandler;
 import org.cdpg.dx.auth.v2.lookup.AppCredentialLookup;
 import org.cdpg.dx.auth.v2.lookup.UserLookup;
@@ -28,6 +31,7 @@ import org.cdpg.dx.common.exception.DxUnauthorizedException;
  * role-derived scopes — so revoking a role from the owner immediately shrinks the app's authority.
  */
 public final class AppCredentialsResolver {
+  private static final Logger LOGGER = LogManager.getLogger(AppCredentialsResolver.class);
 
   private final AppCredentialLookup appLookup;
   private final UserLookup userLookup;
@@ -54,7 +58,10 @@ public final class AppCredentialsResolver {
                 return;
               }
               AppPrincipal app = maybeApp.get();
-
+              LOGGER.info(
+                  "App authentication successful for appId: {}, ownerSub: {}",
+                  app.appId(),
+                  app.ownerSub());
               userLookup
                   .findBySub(app.ownerSub())
                   .onFailure(err -> ctx.fail(new DxUnauthorizedException("User lookup failed")))
@@ -65,7 +72,12 @@ public final class AppCredentialsResolver {
                           return;
                         }
                         UserSnapshot owner = maybeOwner.get();
+                        LOGGER.info(
+                            "App owner lookup successful for sub: {}, orgId: {}",
+                            owner.sub(),
+                            owner.organisationId());
                         DxPrincipal principal = buildPrincipal(app, owner);
+                        LOGGER.debug("dxPrincipal : " + principal.toJson());
                         ctx.put(AuthorizationHandler.PRINCIPAL_KEY, principal);
                         ctx.next();
                       });

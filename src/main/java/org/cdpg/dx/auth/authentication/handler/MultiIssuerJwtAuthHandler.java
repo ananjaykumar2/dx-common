@@ -3,16 +3,15 @@ package org.cdpg.dx.auth.authentication.handler;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
 import io.vertx.ext.auth.authentication.TokenCredentials;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.impl.AuthenticationHandlerInternal;
-import java.util.Base64;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.authentication.client.JwksResolver;
 import org.cdpg.dx.auth.authentication.util.BearerTokenExtractor;
+import org.cdpg.dx.auth.authentication.util.JwtTokenUtil;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 
 public class MultiIssuerJwtAuthHandler implements AuthenticationHandlerInternal {
@@ -22,20 +21,6 @@ public class MultiIssuerJwtAuthHandler implements AuthenticationHandlerInternal 
 
   public MultiIssuerJwtAuthHandler(JwksResolver resolver) {
     this.jwksResolver = resolver;
-  }
-
-  private static String extractIssuer(String token) {
-    String[] parts = token.split("\\.");
-    if (parts.length < 2) throw new IllegalArgumentException("Malformed JWT");
-    String payload = new String(Base64.getUrlDecoder().decode(parts[1]));
-    return new JsonObject(payload).getString("iss");
-  }
-
-  private static String extractKid(String token) {
-    String[] parts = token.split("\\.");
-    if (parts.length < 2) throw new IllegalArgumentException("Malformed JWT");
-    String header = new String(Base64.getUrlDecoder().decode(parts[0]));
-    return new JsonObject(header).getString("kid");
   }
 
   @Override
@@ -62,8 +47,8 @@ public class MultiIssuerJwtAuthHandler implements AuthenticationHandlerInternal 
     String issuer;
     String kid;
     try {
-      issuer = extractIssuer(token);
-      kid = extractKid(token);
+      issuer = JwtTokenUtil.extractIssuer(token);
+      kid = JwtTokenUtil.extractKid(token);
     } catch (Exception e) {
       LOGGER.error("Failed to extract token claims: {}", e.getMessage());
       handler.handle(Future.failedFuture(new DxUnauthorizedException("Invalid token format")));
