@@ -12,6 +12,8 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
 import io.vertx.ext.web.RoutingContext;
 import java.util.List;
+
+import io.vertx.junit5.VertxExtension;
 import org.cdpg.dx.auth.authorization.model.DxRole;
 import org.cdpg.dx.auth.authorization.model.DxScope;
 import org.cdpg.dx.common.exception.DxForbiddenException;
@@ -40,9 +42,7 @@ class AuthorizationHandlerTest {
     void userHasRequiredRole_callsNext() {
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("consumer")));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("consumer")));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -59,9 +59,7 @@ class AuthorizationHandlerTest {
     void userMissingRole_callsFailWith403() {
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("consumer")));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("consumer")));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -72,8 +70,7 @@ class AuthorizationHandlerTest {
       ArgumentCaptor<Throwable> captor = ArgumentCaptor.forClass(Throwable.class);
       verify(ctx).fail(captor.capture());
       assertThat(captor.getValue()).isInstanceOf(DxForbiddenException.class);
-      assertThat(captor.getValue().getMessage())
-          .isEqualTo("User does not have the required role.");
+      assertThat(captor.getValue().getMessage()).isEqualTo("User does not have the required role.");
       verify(ctx, never()).next();
     }
 
@@ -93,14 +90,11 @@ class AuthorizationHandlerTest {
     }
 
     @Test
-    @DisplayName(
-        "should call ctx.next() when multiple roles are allowed and user has at least one")
+    @DisplayName("should call ctx.next() when multiple roles are allowed and user has at least one")
     void multipleAllowedRoles_userHasOne_callsNext() {
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("provider")));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("provider")));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -121,8 +115,7 @@ class AuthorizationHandlerTest {
           new JsonObject()
               .put(
                   "realm_access",
-                  new JsonObject()
-                      .put("roles", new JsonArray().add("consumer").add("provider")));
+                  new JsonObject().put("roles", new JsonArray().add("consumer").add("provider")));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -137,7 +130,8 @@ class AuthorizationHandlerTest {
       verify(ctx).put(keyCaptor.capture(), valueCaptor.capture());
 
       assertThat(keyCaptor.getValue()).isEqualTo("allowedRoles");
-      assertThat((List<String>) valueCaptor.getValue()).containsExactlyInAnyOrder("consumer", "provider");
+      assertThat((List<String>) valueCaptor.getValue())
+          .containsExactlyInAnyOrder("consumer", "provider");
       verify(ctx).next();
     }
 
@@ -165,9 +159,7 @@ class AuthorizationHandlerTest {
     void computeOnlyRole_userLacks_failsWithGpuMessage() {
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("consumer")));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("consumer")));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -194,10 +186,8 @@ class AuthorizationHandlerTest {
       // A delegate user: realm_access.roles only contains "delegate"
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("delegate")))
-              .put("delegation_scope", new JsonArray().add("data_access"));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("delegate")))
+              .put("delegation_scope", new JsonArray().add("data-access"));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -217,9 +207,7 @@ class AuthorizationHandlerTest {
       // A primary user has a non-delegate role in realm_access
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("consumer")));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("consumer")));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -238,9 +226,7 @@ class AuthorizationHandlerTest {
     void delegateMissingScope_callsFailWith403() {
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("delegate")))
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("delegate")))
               .put("delegation_scope", new JsonArray().add("user_management"));
 
       when(ctx.user()).thenReturn(user);
@@ -265,9 +251,7 @@ class AuthorizationHandlerTest {
       // Delegate user with no delegation_scope field at all
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("delegate")));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("delegate")));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
@@ -305,20 +289,15 @@ class AuthorizationHandlerTest {
     void delegateHasScope_storesMatchedScopesInContext() {
       JsonObject principal =
           new JsonObject()
-              .put(
-                  "realm_access",
-                  new JsonObject().put("roles", new JsonArray().add("delegate")))
-              .put(
-                  "delegation_scope",
-                  new JsonArray().add("data_access").add("user_management"));
+              .put("realm_access", new JsonObject().put("roles", new JsonArray().add("delegate")))
+              .put("delegation_scope", new JsonArray().add("data-access").add("user-management"));
 
       when(ctx.user()).thenReturn(user);
       when(user.principal()).thenReturn(principal);
       when(ctx.put(any(String.class), any())).thenReturn(ctx);
 
       Handler<RoutingContext> handler =
-          AuthorizationHandler.forDelegationScopes(
-              DxScope.DATA_ACCESS, DxScope.USER_MANAGEMENT);
+          AuthorizationHandler.forDelegationScopes(DxScope.DATA_ACCESS, DxScope.USER_MANAGEMENT);
       handler.handle(ctx);
 
       ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
@@ -327,7 +306,7 @@ class AuthorizationHandlerTest {
 
       assertThat(keyCaptor.getValue()).isEqualTo("allowedScopes");
       assertThat((List<String>) valueCaptor.getValue())
-          .containsExactlyInAnyOrder("data_access", "user_management");
+          .containsExactlyInAnyOrder("data-access", "user-management");
       verify(ctx).next();
     }
   }
@@ -412,8 +391,7 @@ class AuthorizationHandlerTest {
       ArgumentCaptor<Throwable> captor = ArgumentCaptor.forClass(Throwable.class);
       verify(ctx).fail(captor.capture());
       assertThat(captor.getValue()).isInstanceOf(DxForbiddenException.class);
-      assertThat(captor.getValue().getMessage())
-          .isEqualTo("Missing KYC verification status.");
+      assertThat(captor.getValue().getMessage()).isEqualTo("Missing KYC verification status.");
       verify(ctx, never()).next();
     }
   }
