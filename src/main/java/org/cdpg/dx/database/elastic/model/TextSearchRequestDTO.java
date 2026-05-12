@@ -7,4 +7,6 @@ package org.cdpg.dx.database.elastic.model;
  * @param fuzzy whether to enable fuzzy matching
  * @param autoComplete whether to enable autocomplete matching
  */
-public record TextSearchRequestDTO(String q, Boolean fuzzy, Boolean autoComplete) {}
+public record TextSearchRequestDTO(String q, Boolean fuzzy, Boolean autoComplete,
+                                   TextSearchOptionsDTO options) {
+}

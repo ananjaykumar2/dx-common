@@ -267,7 +267,7 @@ public abstract class AbstractBaseDAO<T extends BaseEntity<T>> implements BaseDA
             });
   }
 
-  private PaginatedResult<T> toPaginatedResult(QueryResult result, int page, int size) {
+  public PaginatedResult<T> toPaginatedResult(QueryResult result, int page, int size) {
     List<T> entities =
         result.getRows().stream()
             .map(row -> fromJson.apply((JsonObject) row))
