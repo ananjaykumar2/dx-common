@@ -320,7 +320,10 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                 // OpenAPI security handlers
                 routerBuilder.securityHandler("authorization", mainAuthHandler);
                 routerBuilder.securityHandler("optionalAuth", optionalAuthHandler);
-                if (appIdAuthHandler != null && authV2 == null) {
+                if (authV2 != null) {
+                  // AuthenticationHandlerV2 handles both JWT and Basic (AppId) auth
+                  routerBuilder.securityHandler("appIdAuth", authV2);
+                } else if (appIdAuthHandler != null) {
                   routerBuilder.securityHandler("appIdAuth", mainAuthHandler);
                 }
 

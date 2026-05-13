@@ -1,5 +1,6 @@
 package org.cdpg.dx.auth.v2.resolver;
 
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
@@ -12,6 +13,7 @@ import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.cdpg.dx.auth.appid.handler.AppIdAuthHandler;
 import org.cdpg.dx.auth.v2.lookup.AppCredentialLookup;
 import org.cdpg.dx.auth.v2.lookup.UserLookup;
 import org.cdpg.dx.auth.v2.model.AppPrincipal;
@@ -44,6 +46,48 @@ public final class AppCredentialsResolver {
   public AppCredentialsResolver(AppCredentialLookup appLookup, UserLookup userLookup) {
     this.appLookup = Objects.requireNonNull(appLookup, "appLookup");
     this.userLookup = Objects.requireNonNull(userLookup, "userLookup");
+  }
+
+  /**
+   * Authentication contract for Vert.x {@code ChainAuthHandler}: verifies app credentials and
+   * returns a fully-built {@link User} via a {@link Future}. Does NOT touch the RoutingContext —
+   * the caller ({@link org.cdpg.dx.auth.v2.handler.AuthenticationHandlerV2}) is responsible for
+   * {@code ctx.setUser()} and moving {@link AppIdAuthHandler#PRINCIPAL_APP_ID_KEY} to context data.
+   */
+  public Future<User> authenticateForChain(RoutingContext ctx) {
+    Credentials creds = extractCredentials(ctx);
+    if (creds == null) {
+      return Future.failedFuture(new DxUnauthorizedException("Missing app credentials"));
+    }
+    return appLookup.verify(creds.appId, creds.secret)
+        .recover(err -> {
+          LOGGER.error("App authentication service error: {}", err.getMessage());
+          return Future.failedFuture(new DxUnauthorizedException("Authentication service error"));
+        })
+        .compose(maybeApp -> {
+          if (maybeApp.isEmpty() || !maybeApp.get().active()) {
+            return Future.failedFuture(new DxUnauthorizedException("Invalid app credentials"));
+          }
+          AppPrincipal app = maybeApp.get();
+          LOGGER.info("App authentication successful for appId: {}, ownerSub: {}", app.appId(), app.ownerSub());
+          return userLookup.findBySub(app.ownerSub())
+              .recover(err -> {
+                LOGGER.error("User lookup failed: {}", err.getMessage());
+                return Future.failedFuture(new DxUnauthorizedException("User lookup failed"));
+              })
+              .compose(maybeOwner -> {
+                if (maybeOwner.isEmpty() || maybeOwner.get().disabled()) {
+                  return Future.failedFuture(new DxForbiddenException("App owner is no longer active"));
+                }
+                UserSnapshot owner = maybeOwner.get();
+                LOGGER.info("App owner lookup successful for sub: {}, orgId: {}", owner.sub(), owner.organisationId());
+                User user = buildUser(app, owner);
+                // Stash appId for AuthenticationHandlerV2.postAuthentication() to move to ctx data
+                user.principal().put(AppIdAuthHandler.PRINCIPAL_APP_ID_KEY, app.appId());
+                LOGGER.debug("app user principal for chain auth: {}", user.principal());
+                return Future.succeededFuture(user);
+              });
+        });
   }
 
   public void resolve(RoutingContext ctx) {
@@ -84,6 +128,7 @@ public final class AppCredentialsResolver {
                         User user = buildUser(app, owner);
                         LOGGER.debug("app user principal: {}", user.principal());
                         ctx.setUser(user);
+                        ctx.put(AppIdAuthHandler.APP_ID_KEY, app.appId());
                         ctx.next();
                       });
             });
@@ -103,6 +148,7 @@ public final class AppCredentialsResolver {
 
     JsonObject principal = new JsonObject()
         .put("sub", owner.sub())
+        .put("iss", "dx-controlplane")
         .put("organisation_id", ownerOrgId)
         .put("realm_access", new JsonObject().put("roles", rolesArr))
         .put("scopes", scopesArr)
