@@ -13,49 +13,42 @@ import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.cdpg.dx.auth.v2.model.DxPrincipal;
-import org.cdpg.dx.auth.v2.model.DxRole;
-import org.cdpg.dx.auth.v2.registry.RoleScopeRegistry;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 
 /**
- * Authorization entry point for the v2 auth stack. Reads the Vert.x {@link User} set by
- * {@link AuthenticationHandlerV2} and enforces scope or role requirements.
+ * Authorization entry point for the v2 auth stack. All methods are static — this class has no
+ * state. Reads the Vert.x {@link User} set by {@link AuthenticationHandlerV2} and enforces scope
+ * or role requirements.
  *
  * <p>All three auth paths (plain JWT, delegation, app credentials) pre-compute a {@code "scopes"}
  * array in the User principal, so {@link #forScopes} works uniformly across all of them.
  *
- * <p>Once this handler is promoted to replace the legacy
- * {@code org.cdpg.dx.auth.authorization.handler.AuthorizationHandler}, the deprecated members
- * below can be removed.
+ * <p>Usage at route level:
+ * <pre>
+ *   router.get("/api/data")
+ *       .handler(authHandler)
+ *       .handler(AuthorizationHandler.forScopes(Scopes.DATA_ACCESS))
+ *       .handler(myService::handle);
+ * </pre>
  */
 public final class AuthorizationHandler {
+
   private static final Logger LOGGER = LogManager.getLogger(AuthorizationHandler.class);
 
   /**
    * @deprecated No longer populated. All auth paths now set {@code ctx.user()} directly.
-   *     Kept for binary compatibility during migration.
    */
   @Deprecated
   public static final String PRINCIPAL_KEY = "dxPrincipal";
 
-  /**
-   * @deprecated The registry is no longer consulted — scope resolution happens at authentication
-   *     time. Kept so existing wiring still compiles.
-   */
-  @Deprecated
-  private final RoleScopeRegistry registry;
-
-  public AuthorizationHandler(RoleScopeRegistry registry) {
-    this.registry = Objects.requireNonNull(registry, "registry");
-  }
+  private AuthorizationHandler() {}
 
   /**
    * Passes if the user's pre-computed {@code "scopes"} contain <em>any</em> of the required
    * scopes. Works uniformly for plain JWT, delegation, and app-credential users.
    */
-  public Handler<RoutingContext> forScopes(String... required) {
+  public static Handler<RoutingContext> forScopes(String... required) {
     Objects.requireNonNull(required, "required");
     if (required.length == 0) throw new IllegalArgumentException("forScopes requires at least one scope");
 
@@ -83,12 +76,12 @@ public final class AuthorizationHandler {
   /**
    * Passes if the user's {@code realm_access.roles} contain <em>any</em> of the required roles.
    */
-  public Handler<RoutingContext> forRoles(DxRole... required) {
+  public static Handler<RoutingContext> forRoles(org.cdpg.dx.auth.v2.model.DxRole... required) {
     Objects.requireNonNull(required, "required");
     if (required.length == 0) throw new IllegalArgumentException("forRoles requires at least one role");
 
     Set<String> requiredNames = Arrays.stream(required)
-        .map(DxRole::keycloakName)
+        .map(org.cdpg.dx.auth.v2.model.DxRole::keycloakName)
         .collect(Collectors.toSet());
 
     return ctx -> {
@@ -115,7 +108,7 @@ public final class AuthorizationHandler {
    * Walks rules in order — highest authority first (PLATFORM → ORG → SELF). The first matching
    * rule wins and publishes an {@link AuthorizationContext} at {@link AuthorizationContext#KEY}.
    */
-  public Handler<RoutingContext> forScopesWithContext(ScopeRule... rules) {
+  public static Handler<RoutingContext> forScopesWithContext(ScopeRule... rules) {
     Objects.requireNonNull(rules, "rules");
     if (rules.length == 0) throw new IllegalArgumentException("forScopesWithContext requires at least one rule");
 
@@ -148,7 +141,7 @@ public final class AuthorizationHandler {
     };
   }
 
-  private User getUser(RoutingContext ctx) {
+  private static User getUser(RoutingContext ctx) {
     User user = ctx.user();
     if (user == null) {
       ctx.fail(new DxUnauthorizedException("No authenticated user"));
@@ -156,12 +149,5 @@ public final class AuthorizationHandler {
     }
     LOGGER.debug("Authenticated user principal: {}", user.principal());
     return user;
-  }
-
-  /** @deprecated Use {@link #getUser(RoutingContext)} — all paths now set {@code ctx.user()} directly. */
-  @Deprecated
-  @SuppressWarnings("deprecation")
-  private DxPrincipal getPrincipal(RoutingContext ctx) {
-    return ctx.get(PRINCIPAL_KEY);
   }
 }
