@@ -25,6 +25,7 @@ message AppIdPrincipalProto {
   repeated string roles            = 3;  // e.g. ["consumer"]
   repeated string scopes           = 4;  // e.g. ["data_access"]
   int64           expires_at_epoch = 6;  // 0 = no expiry; field 5 reserved
+  string          organisation_id  = 7;  // owner's organisation UUID from Keycloak
 }
 
 // ── CheckItemAccess ────────────────────────────────────────────────────────

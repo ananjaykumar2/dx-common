@@ -1,6 +1,7 @@
 package org.cdpg.dx.auth.v2.handler;
 
 import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -11,6 +12,7 @@ import io.vertx.ext.web.handler.impl.AuthenticationHandlerInternal;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import org.cdpg.dx.auth.appid.handler.AppIdAuthHandler;
 import org.cdpg.dx.auth.authentication.client.JwksResolver;
 import org.cdpg.dx.auth.authentication.util.JwtTokenUtil;
 import org.cdpg.dx.auth.v2.model.DxRole;
@@ -33,11 +35,14 @@ import org.cdpg.dx.common.exception.DxUnauthorizedException;
  *
  * <ol>
  *   <li>Both app credentials AND a Bearer token → 400 (ambiguous).
- *   <li>App-credential headers present → {@link AppCredentialsResolver}.
- *   <li>Bearer + {@code delegatorId} → JWT validation → {@link DelegationResolver}.
+ *   <li>App-credential headers present → {@link AppCredentialsResolver#authenticateForChain}.
+ *   <li>Bearer + {@code did} → JWT validation → {@link DelegationResolver} (via postAuthentication).
  *   <li>Bearer alone → JWT validation → scope enrichment → {@code ctx.next()}.
  *   <li>Otherwise → 401.
  * </ol>
+ *
+ * <p>Implements {@link AuthenticationHandlerInternal} so Vert.x {@code RouterBuilder} security
+ * chains ({@code ChainAuthHandler.any()}) can call {@link #authenticate} correctly.
  */
 public final class AuthenticationHandlerV2 implements AuthenticationHandlerInternal {
 
@@ -54,8 +59,30 @@ public final class AuthenticationHandlerV2 implements AuthenticationHandlerInter
     this.appResolver = Objects.requireNonNull(appResolver, "appResolver");
   }
 
+  /**
+   * Standard Vert.x handler entry point — delegates to {@link #authenticate} then calls
+   * {@link #postAuthentication} on success. This path is used when the handler is invoked
+   * directly (not via {@code ChainAuthHandler}).
+   */
   @Override
   public void handle(RoutingContext ctx) {
+    authenticate(ctx, res -> {
+      if (res.succeeded()) {
+        ctx.setUser(res.result());
+        postAuthentication(ctx);
+      } else {
+        ctx.fail(res.cause());
+      }
+    });
+  }
+
+  /**
+   * Authentication contract for {@code ChainAuthHandler}: resolves credentials and calls
+   * {@code handler} with the resulting {@link User} (success) or the cause (failure).
+   * Must NOT call {@code ctx.setUser()}, {@code ctx.next()}, or {@code ctx.fail()} directly.
+   */
+  @Override
+  public void authenticate(RoutingContext ctx, Handler<AsyncResult<User>> handler) {
     String authHeader = ctx.request().getHeader("Authorization");
     String delegatorHeader = ctx.request().getHeader("did");
 
@@ -63,34 +90,60 @@ public final class AuthenticationHandlerV2 implements AuthenticationHandlerInter
     boolean hasBasic = authHeader != null && authHeader.startsWith("Basic ");
 
     if (hasBasic && hasBearer) {
-      ctx.fail(
-          new DxBadRequestException(
-              "Ambiguous credentials: send either JWT or app credentials, not both"));
+      handler.handle(Future.failedFuture(
+          new DxBadRequestException("Ambiguous credentials: send either JWT or app credentials, not both")));
       return;
     }
 
     if (hasBasic) {
-      appResolver.resolve(ctx);
+      appResolver.authenticateForChain(ctx)
+          .onSuccess(user -> handler.handle(Future.succeededFuture(user)))
+          .onFailure(err -> handler.handle(Future.failedFuture(err)));
       return;
     }
 
     if (hasBearer) {
       String token = authHeader.substring(7).trim();
-      validateAndDispatch(ctx, token, delegatorHeader);
+      authenticateBearer(token, delegatorHeader, handler);
       return;
     }
 
-    ctx.fail(new DxUnauthorizedException("Missing credentials"));
+    handler.handle(Future.failedFuture(new DxUnauthorizedException("Missing credentials")));
   }
 
-  private void validateAndDispatch(RoutingContext ctx, String token, String delegatorHeader) {
+  /**
+   * Called after {@link #authenticate} succeeds and {@code ctx.setUser()} has been called.
+   * Moves the {@code _appId} stash from the principal to routing-context data, and
+   * dispatches delegation resolution when a {@code did} header was present.
+   */
+  @Override
+  public void postAuthentication(RoutingContext ctx) {
+    // AppId path: move _appId from principal to ctx routing-context data
+    String appId = ctx.user().principal().getString(AppIdAuthHandler.PRINCIPAL_APP_ID_KEY);
+    if (appId != null) {
+      ctx.put(AppIdAuthHandler.APP_ID_KEY, appId);
+      ctx.user().principal().remove(AppIdAuthHandler.PRINCIPAL_APP_ID_KEY);
+    }
+
+    // JWT delegation path: stashed by authenticateBearer()
+    String delegatorHeader = ctx.user().principal().getString("_delegatorHeader");
+    if (delegatorHeader != null) {
+      ctx.user().principal().remove("_delegatorHeader");
+      delegationResolver.resolve(ctx);  // async — calls ctx.next() or ctx.fail()
+      return;
+    }
+
+    ctx.next();
+  }
+
+  private void authenticateBearer(String token, String delegatorHeader, Handler<AsyncResult<User>> handler) {
     String issuer;
     String kid;
     try {
       issuer = JwtTokenUtil.extractIssuer(token);
       kid = JwtTokenUtil.extractKid(token);
     } catch (Exception e) {
-      ctx.fail(new DxUnauthorizedException("Invalid token format"));
+      handler.handle(Future.failedFuture(new DxUnauthorizedException("Invalid token format")));
       return;
     }
 
@@ -100,17 +153,16 @@ public final class AuthenticationHandlerV2 implements AuthenticationHandlerInter
         .onSuccess(
             user -> {
               User enriched = enrichWithScopes(user);
-              ctx.setUser(enriched);
+              // Stash the delegator header for postAuthentication() to pick up
               if (delegatorHeader != null && !delegatorHeader.isBlank()) {
-                delegationResolver.resolve(ctx);
-              } else {
-                ctx.next();
+                enriched.principal().put("_delegatorHeader", delegatorHeader);
               }
+              handler.handle(Future.succeededFuture(enriched));
             })
         .onFailure(
             err ->
-                ctx.fail(
-                    new DxUnauthorizedException("Unauthorized: %s".formatted(err.getMessage()))));
+                handler.handle(Future.failedFuture(
+                    new DxUnauthorizedException("Unauthorized: %s".formatted(err.getMessage())))));
   }
 
   /**
@@ -135,7 +187,4 @@ public final class AuthenticationHandlerV2 implements AuthenticationHandlerInter
 
     return User.create(principal);
   }
-
-  @Override
-  public void authenticate(RoutingContext context, Handler<AsyncResult<User>> handler) {}
 }

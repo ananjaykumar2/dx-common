@@ -7,6 +7,7 @@ import org.cdpg.dx.auth.appid.v1.AppIdPrincipalProto;
 public record AppIdPrincipal(
     String appId,
     String userId,
+    String organisationId,
     List<String> roles,
     List<String> scopes,
     long expiresAtEpoch) {
@@ -15,6 +16,7 @@ public record AppIdPrincipal(
     return new AppIdPrincipal(
         proto.getAppId(),
         proto.getUserId(),
+        proto.getOrganisationId(),
         proto.getRolesList(),
         proto.getScopesList(),
         proto.getExpiresAtEpoch());

@@ -137,6 +137,8 @@ public class AppIdAuthHandler implements AuthenticationHandlerInternal {
             .put("sub", principal.userId())
             .put("iss", "dx-controlplane")
             .put("realm_access", new JsonObject().put("roles", new JsonArray(roles)))
+            .put("scopes", new JsonArray(principal.scopes()))
+            .put("organisation_id", principal.organisationId())
             .put(PRINCIPAL_APP_ID_KEY, principal.appId());
     return User.create(userPrincipal);
   }
