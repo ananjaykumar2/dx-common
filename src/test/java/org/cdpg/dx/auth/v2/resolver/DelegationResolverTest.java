@@ -63,7 +63,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("delegatorId", "alice");
+              .header("did", "alice");
 
       r.resolve(fake.ctx);
 
@@ -94,7 +94,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("delegatorId", "alice");
+              .header("did", "alice");
 
       r.resolve(fake.ctx);
 
@@ -122,7 +122,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("delegatorId", "alice");
+              .header("did", "alice");
 
       r.resolve(fake.ctx);
 
@@ -138,7 +138,7 @@ class DelegationResolverTest {
   class Failures {
 
     @Test
-    @DisplayName("missing delegatorId header → 401")
+    @DisplayName("missing did header → 401")
     void missingHeader() {
       DelegationResolver r =
           new DelegationResolver(
@@ -160,7 +160,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("delegatorId", "alice");
+              .header("did", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -177,7 +177,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("delegatorId", "alice");
+              .header("did", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -195,7 +195,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("delegatorId", "alice");
+              .header("did", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -212,7 +212,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("delegatorId", "alice");
+              .header("did", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -225,7 +225,7 @@ class DelegationResolverTest {
               delNotFound(),
               userReturns(new UserSnapshot("x", "y", Set.of(), false)));
       FakeRoutingContext fake =
-          new FakeRoutingContext().noUser().header("delegatorId", "alice");
+          new FakeRoutingContext().noUser().header("did", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxUnauthorizedException.class, fake.failedWith);
     }
