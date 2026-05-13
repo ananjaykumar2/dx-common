@@ -236,6 +236,10 @@ public class RoutingContextHelper {
       throw new DxBadRequestException("Invalid or missing 'sub' UUID in token");
     }
 
+    JsonArray scopes = principal.getJsonArray("scopes", new JsonArray());
+    String delegateeId = principal.getString("delegatee_sub", null);
+    String appId = principal.getString("app_id", null);
+
     return new DxUser(
         roles,
         principal.getString("organisation_id", null),
@@ -258,6 +262,8 @@ public class RoutingContextHelper {
         null,
         principal.getString("did", null),
         principal.getString("aud", null),
-        new JsonArray());
+        scopes,
+        delegateeId,
+        appId);
   }
 }

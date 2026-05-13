@@ -23,6 +23,7 @@ final class FakeRoutingContext {
   final Map<String, String> headers = new HashMap<>();
   Throwable failedWith;
   boolean nextCalled;
+  User currentUser;
 
   FakeRoutingContext() {
     when(ctx.request()).thenReturn(req);
@@ -34,6 +35,14 @@ final class FakeRoutingContext {
               data.put(inv.getArgument(0), inv.getArgument(1));
               return ctx;
             });
+    when(ctx.user()).thenAnswer(inv -> currentUser);
+    doAnswer(
+            inv -> {
+              currentUser = inv.getArgument(0);
+              return null;
+            })
+        .when(ctx)
+        .setUser(any(User.class));
     doAnswer(
             inv -> {
               nextCalled = true;
@@ -56,8 +65,7 @@ final class FakeRoutingContext {
   }
 
   FakeRoutingContext userWithClaims(JsonObject claims) {
-    User u = User.create(claims);
-    when(ctx.user()).thenReturn(u);
+    currentUser = User.create(claims);
     return this;
   }
 

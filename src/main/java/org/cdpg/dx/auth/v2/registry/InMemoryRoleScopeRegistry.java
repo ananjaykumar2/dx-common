@@ -6,13 +6,12 @@ import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.auth.v2.model.DxRole;
 
 /**
- * In-memory implementation backed by {@link SystemRoleScopeMap}. Effective scopes are the union of
- * scopes flattened from {@code authorizationRoles} and the pre-computed {@code directScopes}.
+ * In-memory implementation of {@link RoleScopeRegistry}.
  *
- * <p>For plain users, {@code authorizationRoles} is non-empty and {@code directScopes} is empty.
- * For delegation and apps, {@code authorizationRoles} is empty and {@code directScopes} is the
- * already-capped scope set. One function, correct for all three paths.
+ * @deprecated See {@link RoleScopeRegistry} — scope resolution now happens at authentication time.
+ *     Use {@link SystemRoleScopeMap} directly if role-to-scope flattening is needed.
  */
+@Deprecated
 public final class InMemoryRoleScopeRegistry implements RoleScopeRegistry {
 
   @Override

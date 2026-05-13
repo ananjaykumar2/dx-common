@@ -28,7 +28,9 @@ public record DxUser(
     Boolean account_enabled,
     String did,
     String aud,
-    JsonArray scopes) {
+    JsonArray scopes,
+    String delegateeId,
+    String appId) {
   public JsonObject toJson() {
     String isoCreatedAt = createdAt != null ? createdAt.toString() : null;
 
@@ -54,7 +56,9 @@ public record DxUser(
         .put("account_enabled", account_enabled)
         .put("did", did)
         .put("aud", aud)
-        .put("delegation_scope", scopes);
+        .put("delegation_scope", scopes)
+        .put("delegateeId", delegateeId)
+        .put("appId", appId);
   }
 
   public static DxUser withPendingRoles(
@@ -81,6 +85,8 @@ public record DxUser(
         user.account_enabled(),
         user.did(),
         user.aud(),
-        user.scopes());
+        user.scopes(),
+        user.delegateeId(),
+        user.appId());
   }
 }

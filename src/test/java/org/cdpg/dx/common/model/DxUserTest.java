@@ -37,7 +37,9 @@ class DxUserTest {
         true,
         "delegator-id",
         "rs.example.com",
-        new JsonArray().add("read").add("write"));
+        new JsonArray().add("read").add("write"),
+        "delegatee-sub-123",
+        "app-id-456");
   }
 
   @Nested
@@ -71,13 +73,15 @@ class DxUserTest {
       assertThat(json.getString("did")).isEqualTo("delegator-id");
       assertThat(json.getString("aud")).isEqualTo("rs.example.com");
       assertThat(json.getJsonArray("delegation_scope")).containsExactly("read", "write");
+      assertThat(json.getString("delegateeId")).isEqualTo("delegatee-sub-123");
+      assertThat(json.getString("appId")).isEqualTo("app-id-456");
     }
 
     @Test
     void handlesNullRoles() {
       DxUser user = new DxUser(
           null, null, null, null, false, false, null, null, null, null, null,
-          null, null, null, null, null, null, null, null, null, null, null);
+          null, null, null, null, null, null, null, null, null, null, null, null, null);
       JsonObject json = user.toJson();
 
       assertThat(json.getJsonArray("roles")).isEmpty();
@@ -89,7 +93,7 @@ class DxUserTest {
     void handlesNullCreatedAt() {
       DxUser user = new DxUser(
           List.of(), "", "", UUID.randomUUID(), false, false, "", "", "", "", "",
-          List.of(), new JsonObject(), null, new JsonObject(), "", "", "", true, "", "", new JsonArray());
+          List.of(), new JsonObject(), null, new JsonObject(), "", "", "", true, "", "", new JsonArray(), null, null);
       JsonObject json = user.toJson();
 
       assertThat(json.getString("createdAt")).isNull();
@@ -153,7 +157,7 @@ class DxUserTest {
           List.of("consumer"), "org-1", "Org Name", id, true, false,
           "Full Name", "username", "First", "Last", "email@test.com",
           List.of(), new JsonObject(), null, new JsonObject(), "", "", "",
-          true, "did-val", "aud-val", scopes);
+          true, "did-val", "aud-val", scopes, null, null);
 
       assertThat(user.sub()).isEqualTo(id);
       assertThat(user.email()).isEqualTo("email@test.com");

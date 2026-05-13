@@ -8,11 +8,9 @@ import io.vertx.core.json.JsonObject;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
-import org.cdpg.dx.auth.v2.handler.AuthorizationHandler;
 import org.cdpg.dx.auth.v2.lookup.DelegationLookup;
 import org.cdpg.dx.auth.v2.lookup.UserLookup;
 import org.cdpg.dx.auth.v2.model.DelegationRecord;
-import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.auth.v2.model.DxRole;
 import org.cdpg.dx.auth.v2.model.Scopes;
 import org.cdpg.dx.auth.v2.model.UserSnapshot;
@@ -51,7 +49,7 @@ class DelegationResolverTest {
   class Happy {
 
     @Test
-    @DisplayName("partial delegation — builds principal acting as delegator with capped scopes")
+    @DisplayName("partial delegation — ctx.user() is set to delegator with capped scopes")
     void partialDelegationHappy() {
       DelegationRecord d =
           new DelegationRecord(
@@ -65,24 +63,27 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("X-Delegator-Id", "alice");
+              .header("delegatorId", "alice");
 
       r.resolve(fake.ctx);
 
       assertTrue(fake.nextCalled);
-      DxPrincipal p = (DxPrincipal) fake.data.get(AuthorizationHandler.PRINCIPAL_KEY);
-      assertTrue(p.isDelegation());
-      assertEquals("alice", p.getSub());
-      assertEquals("org-a", p.getOrganisationId());
-      assertEquals("bob", p.getAuthenticatedSub());
-      assertEquals("org-b", p.getAuthenticatedOrgId());
-      assertEquals(Set.of(Scopes.DATA_ACCESS), p.getDirectScopes());
-      assertTrue(p.getAuthorizationRoles().isEmpty());
-      assertEquals(Set.of(DxRole.CONSUMER, DxRole.ORG_ADMIN), p.getAuditRoles());
+      assertNotNull(fake.currentUser, "ctx.setUser() must be called on success");
+
+      JsonObject principal = fake.currentUser.principal();
+      // effective identity is the delegator
+      assertEquals("alice", principal.getString("sub"));
+      assertEquals("org-a", principal.getString("organisation_id"));
+      // delegatee stored for audit
+      assertEquals("bob", principal.getString("delegatee_sub"));
+      // scopes capped to delegation grant ∩ delegator's current scopes
+      JsonArray scopes = principal.getJsonArray("scopes");
+      assertNotNull(scopes);
+      assertTrue(scopes.contains(Scopes.DATA_ACCESS));
     }
 
     @Test
-    @DisplayName("full delegation — effective = delegator's current flattened scopes")
+    @DisplayName("full delegation — scopes equal delegator's current flattened scopes")
     void fullDelegationTracksDelegator() {
       DelegationRecord d =
           new DelegationRecord("alice", "bob", Set.of(), /*fullDelegation*/ true, true, 0L);
@@ -93,12 +94,14 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("X-Delegator-Id", "alice");
+              .header("delegatorId", "alice");
 
       r.resolve(fake.ctx);
 
-      DxPrincipal p = (DxPrincipal) fake.data.get(AuthorizationHandler.PRINCIPAL_KEY);
-      assertEquals(Set.of(Scopes.OWN_ASSET_MANAGEMENT), p.getDirectScopes());
+      assertTrue(fake.nextCalled);
+      JsonArray scopes = fake.currentUser.principal().getJsonArray("scopes");
+      assertTrue(scopes.contains(Scopes.OWN_ASSET_MANAGEMENT),
+          "Full delegation must grant all of delegator's current scopes");
     }
   }
 
@@ -119,12 +122,14 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("X-Delegator-Id", "alice");
+              .header("delegatorId", "alice");
 
       r.resolve(fake.ctx);
 
-      DxPrincipal p = (DxPrincipal) fake.data.get(AuthorizationHandler.PRINCIPAL_KEY);
-      assertTrue(p.getDirectScopes().isEmpty(), "Scope must be dropped if delegator lost the role");
+      assertTrue(fake.nextCalled);
+      JsonArray scopes = fake.currentUser.principal().getJsonArray("scopes");
+      assertFalse(scopes.contains(Scopes.DATA_ACCESS),
+          "Scope must be dropped when delegator no longer holds that role");
     }
   }
 
@@ -133,7 +138,7 @@ class DelegationResolverTest {
   class Failures {
 
     @Test
-    @DisplayName("missing X-Delegator-Id header → 401")
+    @DisplayName("missing delegatorId header → 401")
     void missingHeader() {
       DelegationResolver r =
           new DelegationResolver(
@@ -155,7 +160,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("X-Delegator-Id", "alice");
+              .header("delegatorId", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -172,7 +177,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("X-Delegator-Id", "alice");
+              .header("delegatorId", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -190,7 +195,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("X-Delegator-Id", "alice");
+              .header("delegatorId", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -207,7 +212,7 @@ class DelegationResolverTest {
       FakeRoutingContext fake =
           new FakeRoutingContext()
               .userWithClaims(jwt("bob", "org-b"))
-              .header("X-Delegator-Id", "alice");
+              .header("delegatorId", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -220,7 +225,7 @@ class DelegationResolverTest {
               delNotFound(),
               userReturns(new UserSnapshot("x", "y", Set.of(), false)));
       FakeRoutingContext fake =
-          new FakeRoutingContext().noUser().header("X-Delegator-Id", "alice");
+          new FakeRoutingContext().noUser().header("delegatorId", "alice");
       r.resolve(fake.ctx);
       assertInstanceOf(DxUnauthorizedException.class, fake.failedWith);
     }

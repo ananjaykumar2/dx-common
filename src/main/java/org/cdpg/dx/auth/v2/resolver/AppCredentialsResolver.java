@@ -1,5 +1,8 @@
 package org.cdpg.dx.auth.v2.resolver;
 
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
+import io.vertx.ext.auth.User;
 import io.vertx.ext.web.RoutingContext;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -9,11 +12,9 @@ import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.cdpg.dx.auth.v2.handler.AuthorizationHandler;
 import org.cdpg.dx.auth.v2.lookup.AppCredentialLookup;
 import org.cdpg.dx.auth.v2.lookup.UserLookup;
 import org.cdpg.dx.auth.v2.model.AppPrincipal;
-import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.auth.v2.model.DxRole;
 import org.cdpg.dx.auth.v2.model.UserSnapshot;
 import org.cdpg.dx.auth.v2.registry.SystemRoleScopeMap;
@@ -22,13 +23,17 @@ import org.cdpg.dx.common.exception.DxUnauthorizedException;
 
 /**
  * Resolves app credentials (either {@code X-App-Id} + {@code X-App-Secret} headers, or {@code
- * Authorization: Basic base64(appId:secret)}) into a {@link DxPrincipal}.
+ * Authorization: Basic base64(appId:secret)}) into a Vert.x {@link User} stored via
+ * {@code ctx.setUser()}.
  *
- * <p>Depends only on {@link AppCredentialLookup} and {@link UserLookup}; transport (local vs gRPC)
- * is the implementation's concern.
- *
- * <p>Effective scopes are the intersection of the app's stored scopes and the owner's current
- * role-derived scopes — so revoking a role from the owner immediately shrinks the app's authority.
+ * <p>The produced User principal contains:
+ * <ul>
+ *   <li>{@code sub} — owner's sub
+ *   <li>{@code organisation_id} — owner's org
+ *   <li>{@code realm_access.roles} — owner's current roles
+ *   <li>{@code scopes} — intersection of app's stored scopes and owner's role-derived scopes
+ *   <li>{@code app_id} — the app identifier (for auditing)
+ * </ul>
  */
 public final class AppCredentialsResolver {
   private static final Logger LOGGER = LogManager.getLogger(AppCredentialsResolver.class);
@@ -76,27 +81,34 @@ public final class AppCredentialsResolver {
                             "App owner lookup successful for sub: {}, orgId: {}",
                             owner.sub(),
                             owner.organisationId());
-                        DxPrincipal principal = buildPrincipal(app, owner);
-                        LOGGER.debug("dxPrincipal : " + principal.toJson());
-                        ctx.put(AuthorizationHandler.PRINCIPAL_KEY, principal);
+                        User user = buildUser(app, owner);
+                        LOGGER.debug("app user principal: {}", user.principal());
+                        ctx.setUser(user);
                         ctx.next();
                       });
             });
   }
 
-  private DxPrincipal buildPrincipal(AppPrincipal app, UserSnapshot owner) {
+  private User buildUser(AppPrincipal app, UserSnapshot owner) {
     Set<String> ownerCurrentScopes = flatten(owner.roles());
     Set<String> capped = intersect(app.appScopes(), ownerCurrentScopes);
 
     String ownerOrgId = app.ownerOrgId() != null ? app.ownerOrgId() : owner.organisationId();
 
-    return DxPrincipal.builder()
-        .authenticatedSub(owner.sub())
-        .authenticatedOrgId(ownerOrgId)
-        .directScopes(capped)
-        .auditRoles(owner.roles())
-        .appId(app.appId())
-        .build();
+    JsonArray rolesArr = new JsonArray();
+    owner.roles().forEach(r -> rolesArr.add(r.keycloakName()));
+
+    JsonArray scopesArr = new JsonArray();
+    capped.forEach(scopesArr::add);
+
+    JsonObject principal = new JsonObject()
+        .put("sub", owner.sub())
+        .put("organisation_id", ownerOrgId)
+        .put("realm_access", new JsonObject().put("roles", rolesArr))
+        .put("scopes", scopesArr)
+        .put("app_id", app.appId());
+
+    return User.create(principal);
   }
 
   private static Set<String> flatten(Set<DxRole> roles) {

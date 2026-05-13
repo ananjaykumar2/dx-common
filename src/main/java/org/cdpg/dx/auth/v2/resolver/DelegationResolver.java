@@ -1,5 +1,6 @@
 package org.cdpg.dx.auth.v2.resolver;
 
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
 import io.vertx.ext.web.RoutingContext;
@@ -7,11 +8,9 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
-import org.cdpg.dx.auth.v2.handler.AuthorizationHandler;
 import org.cdpg.dx.auth.v2.lookup.DelegationLookup;
 import org.cdpg.dx.auth.v2.lookup.UserLookup;
 import org.cdpg.dx.auth.v2.model.DelegationRecord;
-import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.auth.v2.model.DxRole;
 import org.cdpg.dx.auth.v2.model.UserSnapshot;
 import org.cdpg.dx.auth.v2.registry.SystemRoleScopeMap;
@@ -19,14 +18,18 @@ import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 
 /**
- * Resolves a JWT + {@code X-Delegator-Id} header into a {@link DxPrincipal} acting <em>as</em> the
+ * Resolves a JWT + {@code delegatorId} header into a Vert.x {@link User} acting <em>as</em> the
  * delegator. The JWT must already be validated by an upstream auth handler.
  *
- * <p>The JWT must include the {@code sub} claim. The {@code organisation_id} claim is optional.
- *
- * <p>Effective scopes are the intersection of the delegation's stored scopes (or the delegator's
- * current flattened scopes, for a "full" delegation) and the delegator's current role-derived
- * scopes — so losing a role on the delegator immediately caps the delegation.
+ * <p>Sets {@code ctx.user()} with a principal JSON containing:
+ * <ul>
+ *   <li>{@code sub} — delegator's sub (effective identity)
+ *   <li>{@code organisation_id} — delegator's org
+ *   <li>{@code realm_access.roles} — delegator's current roles
+ *   <li>{@code delegation_scope} — capped effective scopes
+ *   <li>{@code delegatee_sub} — JWT sub (for audit)
+ *   <li>{@code delegatee_org_id} — JWT org (for audit, if present)
+ * </ul>
  */
 public final class DelegationResolver {
 
@@ -39,12 +42,12 @@ public final class DelegationResolver {
   }
 
   public void resolve(RoutingContext ctx) {
-    User user = ctx.user();
-    if (user == null) {
+    User jwtUser = ctx.user();
+    if (jwtUser == null) {
       ctx.fail(new DxUnauthorizedException("Missing JWT"));
       return;
     }
-    JsonObject claims = user.principal();
+    JsonObject claims = jwtUser.principal();
     String delegateeSub = claims.getString("sub");
     String delegateeOrgId = claims.getString("organisation_id");
     if (delegateeSub == null) {
@@ -52,9 +55,9 @@ public final class DelegationResolver {
       return;
     }
 
-    String delegatorSub = ctx.request().getHeader("X-Delegator-Id");
+    String delegatorSub = ctx.request().getHeader("delegatorId");
     if (delegatorSub == null || delegatorSub.isBlank()) {
-      ctx.fail(new DxUnauthorizedException("Missing X-Delegator-Id header"));
+      ctx.fail(new DxUnauthorizedException("Missing delegatorId header"));
       return;
     }
 
@@ -83,15 +86,14 @@ public final class DelegationResolver {
                           return;
                         }
                         UserSnapshot delegator = maybeDelegator.get();
-                        DxPrincipal principal =
-                            buildPrincipal(delegateeSub, delegateeOrgId, delegator, delegation);
-                        ctx.put(AuthorizationHandler.PRINCIPAL_KEY, principal);
+                        User user = buildUser(delegateeSub, delegateeOrgId, delegator, delegation);
+                        ctx.setUser(user);
                         ctx.next();
                       });
             });
   }
 
-  private DxPrincipal buildPrincipal(
+  private User buildUser(
       String delegateeSub,
       String delegateeOrgId,
       UserSnapshot delegator,
@@ -106,14 +108,24 @@ public final class DelegationResolver {
       capped.retainAll(delegatorCurrentScopes);
     }
 
-    return DxPrincipal.builder()
-        .authenticatedSub(delegateeSub)
-        .authenticatedOrgId(delegateeOrgId)
-        .delegatorSub(delegator.sub())
-        .delegatorOrgId(delegator.organisationId())
-        .directScopes(capped)
-        .auditRoles(delegator.roles())
-        .build();
+    JsonArray rolesArr = new JsonArray();
+    for (DxRole r : delegator.roles()) rolesArr.add(r.keycloakName());
+
+    JsonArray scopesArr = new JsonArray();
+    for (String s : capped) scopesArr.add(s);
+
+    JsonObject principal =
+        new JsonObject()
+            .put("sub", delegator.sub())
+            .put("organisation_id", delegator.organisationId())
+            .put("realm_access", new JsonObject().put("roles", rolesArr))
+            .put("scopes", scopesArr)
+            .put("delegatee_sub", delegateeSub);
+    if (delegateeOrgId != null) {
+      principal.put("delegatee_org_id", delegateeOrgId);
+    }
+
+    return User.create(principal);
   }
 
   private static boolean isExpired(DelegationRecord d) {
