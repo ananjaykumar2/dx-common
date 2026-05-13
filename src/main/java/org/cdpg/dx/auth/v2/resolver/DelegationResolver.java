@@ -55,9 +55,9 @@ public final class DelegationResolver {
       return;
     }
 
-    String delegatorSub = ctx.request().getHeader("delegatorId");
+    String delegatorSub = ctx.request().getHeader("did");
     if (delegatorSub == null || delegatorSub.isBlank()) {
-      ctx.fail(new DxUnauthorizedException("Missing delegatorId header"));
+      ctx.fail(new DxUnauthorizedException("Missing did in header"));
       return;
     }
 

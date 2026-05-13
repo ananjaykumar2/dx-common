@@ -57,7 +57,7 @@ public final class AuthenticationHandlerV2 implements AuthenticationHandlerInter
   @Override
   public void handle(RoutingContext ctx) {
     String authHeader = ctx.request().getHeader("Authorization");
-    String delegatorHeader = ctx.request().getHeader("delegatorId");
+    String delegatorHeader = ctx.request().getHeader("did");
 
     boolean hasBearer = authHeader != null && authHeader.startsWith("Bearer ");
     boolean hasBasic = authHeader != null && authHeader.startsWith("Basic ");
