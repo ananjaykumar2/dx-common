@@ -11,11 +11,8 @@ import io.vertx.ext.auth.User;
 import io.vertx.ext.web.RoutingContext;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import org.cdpg.dx.auth.v2.model.DxRole;
 import org.cdpg.dx.auth.v2.model.Scopes;
-import org.cdpg.dx.auth.v2.registry.InMemoryRoleScopeRegistry;
-import org.cdpg.dx.auth.v2.registry.RoleScopeRegistry;
 import org.cdpg.dx.auth.v2.registry.SystemRoleScopeMap;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
@@ -24,11 +21,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 @DisplayName("AuthorizationHandler Tests")
-@SuppressWarnings("deprecation")
 class AuthorizationHandlerTest {
-
-  private final RoleScopeRegistry registry = new InMemoryRoleScopeRegistry();
-  private final AuthorizationHandler handler = new AuthorizationHandler(registry);
 
   /** Minimal fake routing context that tracks ctx.user(), put/get, next(), and fail(). */
   private static class FakeCtx {
@@ -57,10 +50,6 @@ class AuthorizationHandlerTest {
     }
   }
 
-  /**
-   * Builds a Vert.x User principal simulating a plain JWT user with the given roles.
-   * Pre-computes scopes by flattening the roles (same as AuthenticationHandlerV2 does).
-   */
   private static JsonObject jwtPrincipal(String sub, String orgId, DxRole... roles) {
     JsonArray rolesArr = new JsonArray();
     JsonArray scopesArr = new JsonArray();
@@ -75,7 +64,6 @@ class AuthorizationHandlerTest {
         .put("scopes", scopesArr);
   }
 
-  /** Builds a principal with explicit scopes (for delegation / app tests). */
   private static JsonObject principalWithScopes(String sub, String orgId, String... scopes) {
     JsonArray scopesArr = new JsonArray();
     for (String s : scopes) scopesArr.add(s);
@@ -94,7 +82,7 @@ class AuthorizationHandlerTest {
     @DisplayName("passes when any required scope is held")
     void anyMatch() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.ORG_ADMIN));
-      handler.forScopes(Scopes.ORG_USER_MANAGEMENT).handle(ctx.mock);
+      AuthorizationHandler.forScopes(Scopes.ORG_USER_MANAGEMENT).handle(ctx.mock);
       assertTrue(ctx.nextCalled);
       assertNull(ctx.failedWith);
     }
@@ -103,7 +91,7 @@ class AuthorizationHandlerTest {
     @DisplayName("passes when any of multiple required scopes is held")
     void anyOfMany() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.CONSUMER));
-      handler.forScopes(Scopes.ASSET_PUBLISH, Scopes.DATA_ACCESS).handle(ctx.mock);
+      AuthorizationHandler.forScopes(Scopes.ASSET_PUBLISH, Scopes.DATA_ACCESS).handle(ctx.mock);
       assertTrue(ctx.nextCalled);
     }
 
@@ -111,7 +99,7 @@ class AuthorizationHandlerTest {
     @DisplayName("fails 403 when no required scope is held")
     void noMatchForbids() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.CONSUMER));
-      handler.forScopes(Scopes.ORG_MANAGEMENT).handle(ctx.mock);
+      AuthorizationHandler.forScopes(Scopes.ORG_MANAGEMENT).handle(ctx.mock);
       assertFalse(ctx.nextCalled);
       assertInstanceOf(DxForbiddenException.class, ctx.failedWith);
     }
@@ -119,15 +107,15 @@ class AuthorizationHandlerTest {
     @Test
     @DisplayName("fails 401 when no user is present")
     void missingUserUnauthorized() {
-      FakeCtx ctx = new FakeCtx(); // no user set
-      handler.forScopes(Scopes.DATA_ACCESS).handle(ctx.mock);
+      FakeCtx ctx = new FakeCtx();
+      AuthorizationHandler.forScopes(Scopes.DATA_ACCESS).handle(ctx.mock);
       assertInstanceOf(DxUnauthorizedException.class, ctx.failedWith);
     }
 
     @Test
     @DisplayName("rejects empty required set at construction time")
     void rejectsEmpty() {
-      assertThrows(IllegalArgumentException.class, () -> handler.forScopes());
+      assertThrows(IllegalArgumentException.class, () -> AuthorizationHandler.forScopes());
     }
   }
 
@@ -139,8 +127,7 @@ class AuthorizationHandlerTest {
     @DisplayName("PLATFORM rule wins when caller has platform-level scope")
     void platformTier() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.COS_ADMIN));
-      handler
-          .forScopesWithContext(
+      AuthorizationHandler.forScopesWithContext(
               ScopeRule.platform(Scopes.ORG_MANAGEMENT),
               ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
           .handle(ctx.mock);
@@ -154,11 +141,10 @@ class AuthorizationHandlerTest {
     }
 
     @Test
-    @DisplayName("ORG rule wins when caller lacks platform scope — context carries orgId")
+    @DisplayName("ORG rule wins when caller lacks platform scope")
     void orgTier() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.ORG_ADMIN));
-      handler
-          .forScopesWithContext(
+      AuthorizationHandler.forScopesWithContext(
               ScopeRule.platform(Scopes.ORG_MANAGEMENT),
               ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
           .handle(ctx.mock);
@@ -174,8 +160,7 @@ class AuthorizationHandlerTest {
     void priorityOrderMatters() {
       FakeCtx ctx = new FakeCtx().withUser(
           principalWithScopes("alice", "org-a", Scopes.ORG_MANAGEMENT, Scopes.ORG_USER_MANAGEMENT));
-      handler
-          .forScopesWithContext(
+      AuthorizationHandler.forScopesWithContext(
               ScopeRule.platform(Scopes.ORG_MANAGEMENT),
               ScopeRule.org(Scopes.ORG_USER_MANAGEMENT))
           .handle(ctx.mock);
@@ -189,7 +174,8 @@ class AuthorizationHandlerTest {
     void selfTier() {
       FakeCtx ctx = new FakeCtx().withUser(
           principalWithScopes("alice", "org-a", Scopes.OWN_ASSET_MANAGEMENT));
-      handler.forScopesWithContext(ScopeRule.self(Scopes.OWN_ASSET_MANAGEMENT)).handle(ctx.mock);
+      AuthorizationHandler.forScopesWithContext(ScopeRule.self(Scopes.OWN_ASSET_MANAGEMENT))
+          .handle(ctx.mock);
 
       AuthorizationContext auth = (AuthorizationContext) ctx.data.get(AuthorizationContext.KEY);
       assertEquals(AuthLevel.SELF, auth.getLevel());
@@ -200,7 +186,8 @@ class AuthorizationHandlerTest {
     @DisplayName("no rule matches → 403")
     void noMatchForbids() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.CONSUMER));
-      handler.forScopesWithContext(ScopeRule.platform(Scopes.ORG_MANAGEMENT)).handle(ctx.mock);
+      AuthorizationHandler.forScopesWithContext(ScopeRule.platform(Scopes.ORG_MANAGEMENT))
+          .handle(ctx.mock);
       assertInstanceOf(DxForbiddenException.class, ctx.failedWith);
     }
   }
@@ -213,14 +200,13 @@ class AuthorizationHandlerTest {
     @DisplayName("passes when user holds the required role")
     void roleMatch() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.COMPUTE));
-      handler.forRoles(DxRole.COMPUTE).handle(ctx.mock);
+      AuthorizationHandler.forRoles(DxRole.COMPUTE).handle(ctx.mock);
       assertTrue(ctx.nextCalled);
     }
 
     @Test
     @DisplayName("delegation — roles from delegator's realm_access.roles")
     void delegationChecksRoles() {
-      // Delegation user: sub=delegator, roles=delegator's roles
       JsonObject principal = new JsonObject()
           .put("sub", "alice")
           .put("organisation_id", "org-a")
@@ -229,7 +215,7 @@ class AuthorizationHandlerTest {
           .put("scopes", new JsonArray().add(Scopes.DATA_ACCESS))
           .put("delegatee_sub", "bob");
       FakeCtx ctx = new FakeCtx().withUser(principal);
-      handler.forRoles(DxRole.CONSUMER).handle(ctx.mock);
+      AuthorizationHandler.forRoles(DxRole.CONSUMER).handle(ctx.mock);
       assertTrue(ctx.nextCalled);
     }
 
@@ -237,36 +223,36 @@ class AuthorizationHandlerTest {
     @DisplayName("no matching role → 403")
     void noMatchForbids() {
       FakeCtx ctx = new FakeCtx().withUser(jwtPrincipal("alice", "org-a", DxRole.CONSUMER));
-      handler.forRoles(DxRole.COS_ADMIN).handle(ctx.mock);
+      AuthorizationHandler.forRoles(DxRole.COS_ADMIN).handle(ctx.mock);
       assertInstanceOf(DxForbiddenException.class, ctx.failedWith);
     }
   }
 
   @Nested
-  @DisplayName("Constructor / input validation")
+  @DisplayName("Input validation")
   class Validation {
 
     @Test
-    @DisplayName("requires non-null registry")
-    void nullRegistry() {
-      assertThrows(NullPointerException.class, () -> new AuthorizationHandler(null));
+    @DisplayName("forScopes rejects empty")
+    void forScopesEmpty() {
+      assertThrows(IllegalArgumentException.class, () -> AuthorizationHandler.forScopes());
     }
 
     @Test
     @DisplayName("forRoles rejects empty")
     void forRolesEmpty() {
-      assertThrows(IllegalArgumentException.class, () -> handler.forRoles());
+      assertThrows(IllegalArgumentException.class, () -> AuthorizationHandler.forRoles());
     }
 
     @Test
     @DisplayName("forScopesWithContext rejects empty")
     void forScopesWithContextEmpty() {
-      assertThrows(IllegalArgumentException.class, () -> handler.forScopesWithContext());
+      assertThrows(IllegalArgumentException.class, () -> AuthorizationHandler.forScopesWithContext());
     }
   }
 
   @SuppressWarnings("unused")
   private Handler<RoutingContext> typeCheck() {
-    return handler.forScopes(Scopes.DATA_ACCESS);
+    return AuthorizationHandler.forScopes(Scopes.DATA_ACCESS);
   }
 }
