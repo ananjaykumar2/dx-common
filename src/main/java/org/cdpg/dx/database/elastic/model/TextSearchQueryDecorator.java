@@ -1,7 +1,5 @@
 package org.cdpg.dx.database.elastic.model;
 
-import static org.cdpg.dx.database.elastic.util.Constants.*;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +34,7 @@ public class TextSearchQueryDecorator implements ElasticsearchQueryDecorator {
     boolean isAutoComplete = Boolean.TRUE.equals(request.autoComplete());
 
     List<QueryModel> shouldQueries = new ArrayList<>();
+    List<String> fields = buildFields(request);
 
     if (isFuzzy) {
       shouldQueries.add(
@@ -43,7 +42,7 @@ public class TextSearchQueryDecorator implements ElasticsearchQueryDecorator {
               .setQueryParameters(
                   Map.of(
                       "fields",
-                      List.of("label", "tags", "description", "name^5"),
+                      fields,
                       "query",
                       textAttr,
                       "fuzziness",
@@ -58,7 +57,7 @@ public class TextSearchQueryDecorator implements ElasticsearchQueryDecorator {
               .setQueryParameters(
                   Map.of(
                       "fields",
-                      List.of("label", "tags", "description", "name^5"),
+                      fields,
                       "query",
                       textAttr,
                       "type",
@@ -71,7 +70,10 @@ public class TextSearchQueryDecorator implements ElasticsearchQueryDecorator {
       shouldQueries.add(
           new QueryModel(QueryType.MULTI_MATCH)
               .setQueryParameters(
-                  Map.of("fields", List.of("name^5"), "query", textAttr, "boost", "3.0")));
+                  Map.of(
+                      "fields", fields,
+                      "query", textAttr,
+                      "boost", "3.0")));
     }
 
     QueryModel boolModel = new QueryModel(QueryType.BOOL);
@@ -81,4 +83,15 @@ public class TextSearchQueryDecorator implements ElasticsearchQueryDecorator {
     queryMap.computeIfAbsent(FilterType.MUST, k -> new ArrayList<>()).add(boolModel);
     return queryMap;
   }
+
+  private List<String> buildFields(TextSearchRequestDTO request) {
+    if (request.options() != null && request.options().fields() != null) {
+      return request.options().fields().stream()
+          .map(f -> f.boost() != null ? f.name() + "^" + f.boost() : f.name())
+          .toList();
+    }
+    //fallback to default
+    return List.of("label", "tags", "description", "name^5");
+  }
+
 }

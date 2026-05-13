@@ -36,7 +36,7 @@ class TextSearchQueryDecoratorTest {
     @DisplayName("blank query should throw DxEsException")
     void blankQuery() {
       Map<FilterType, List<QueryModel>> map = createEmptyQueryMap();
-      TextSearchRequestDTO dto = new TextSearchRequestDTO("  ", false, false);
+      TextSearchRequestDTO dto = new TextSearchRequestDTO("  ", false, false, null);
       assertThatThrownBy(() -> new TextSearchQueryDecorator(map, dto).add())
           .isInstanceOf(DxEsException.class);
     }
@@ -45,7 +45,7 @@ class TextSearchQueryDecoratorTest {
     @DisplayName("plain text should add MUST query")
     void plainText() {
       Map<FilterType, List<QueryModel>> map = createEmptyQueryMap();
-      TextSearchRequestDTO dto = new TextSearchRequestDTO("water quality", false, false);
+      TextSearchRequestDTO dto = new TextSearchRequestDTO("water quality", false, false, null);
       Map<FilterType, List<QueryModel>> result =
           new TextSearchQueryDecorator(map, dto).add();
       assertThat(result.get(FilterType.MUST)).hasSize(1);
@@ -55,7 +55,7 @@ class TextSearchQueryDecoratorTest {
     @DisplayName("fuzzy should add MULTI_MATCH with fuzziness")
     void fuzzySearch() {
       Map<FilterType, List<QueryModel>> map = createEmptyQueryMap();
-      TextSearchRequestDTO dto = new TextSearchRequestDTO("water", true, false);
+      TextSearchRequestDTO dto = new TextSearchRequestDTO("water", true, false, null);
       Map<FilterType, List<QueryModel>> result =
           new TextSearchQueryDecorator(map, dto).add();
       assertThat(result.get(FilterType.MUST)).hasSize(1);
@@ -65,7 +65,7 @@ class TextSearchQueryDecoratorTest {
     @DisplayName("autocomplete should add MULTI_MATCH with BoolPrefix")
     void autoComplete() {
       Map<FilterType, List<QueryModel>> map = createEmptyQueryMap();
-      TextSearchRequestDTO dto = new TextSearchRequestDTO("wat", false, true);
+      TextSearchRequestDTO dto = new TextSearchRequestDTO("wat", false, true, null);
       Map<FilterType, List<QueryModel>> result =
           new TextSearchQueryDecorator(map, dto).add();
       assertThat(result.get(FilterType.MUST)).hasSize(1);

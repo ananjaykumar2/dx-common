@@ -457,6 +457,10 @@ public class Constants {
 
   public static final String FLATTENED_TERM = "flattenedTerm";
   public static final String AUTO_COMPLETE = "autoComplete";
+  public static final String TEXT_SEARCH_OPTIONS = "textSearchOptions";
+  public static final String BOOST = "boost";
+  public static final String SORT = "sort";
+  public static final String FIELDS = "fields";
   public static final String LIMIT = "limit";
   public static final String OFFSET = "offset";
   public static final String ITEM_ID = "itemId";
