@@ -19,6 +19,12 @@ import java.util.Set;
  *   <li>Delegation and app are mutually exclusive: a principal cannot be both.
  * </ul>
  */
+/**
+ * @deprecated Use Vert.x {@link io.vertx.ext.auth.User} (set via {@code ctx.setUser()}) for auth
+ *     identity and {@link org.cdpg.dx.common.model.DxUser} for business logic. All three auth paths
+ *     (JWT, delegation, app credentials) now populate {@code ctx.user()} directly.
+ */
+@Deprecated
 public final class DxPrincipal {
 
   private final String authenticatedSub;

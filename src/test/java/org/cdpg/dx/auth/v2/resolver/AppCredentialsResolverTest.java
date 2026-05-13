@@ -3,16 +3,16 @@ package org.cdpg.dx.auth.v2.resolver;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import org.cdpg.dx.auth.v2.handler.AuthorizationHandler;
 import org.cdpg.dx.auth.v2.lookup.AppCredentialLookup;
 import org.cdpg.dx.auth.v2.lookup.UserLookup;
 import org.cdpg.dx.auth.v2.model.AppPrincipal;
-import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.auth.v2.model.DxRole;
 import org.cdpg.dx.auth.v2.model.Scopes;
 import org.cdpg.dx.auth.v2.model.UserSnapshot;
@@ -46,7 +46,7 @@ class AppCredentialsResolverTest {
   class Happy {
 
     @Test
-    @DisplayName("accepts X-App-Id / X-App-Secret headers and builds app principal")
+    @DisplayName("accepts X-App-Id / X-App-Secret headers and sets ctx.user() with app principal")
     void headersHappy() {
       AppPrincipal app =
           new AppPrincipal(
@@ -69,15 +69,21 @@ class AppCredentialsResolverTest {
       r.resolve(fake.ctx);
 
       assertTrue(fake.nextCalled);
-      DxPrincipal p = (DxPrincipal) fake.data.get(AuthorizationHandler.PRINCIPAL_KEY);
-      assertTrue(p.isApp());
-      assertEquals("ananjay", p.getSub());
-      assertEquals("org-a", p.getOrganisationId());
-      assertEquals("analytics-worker", p.getAppId());
-      assertEquals(Set.of(Scopes.OWN_ASSET_MANAGEMENT), p.getDirectScopes());
-      assertEquals(Set.of(DxRole.PROVIDER), p.getAuditRoles());
-      assertTrue(p.getAuthorizationRoles().isEmpty(),
-          "App principal must not carry authorization roles — scopes are already capped");
+      assertNotNull(fake.currentUser, "ctx.setUser() must be called on success");
+
+      JsonObject principal = fake.currentUser.principal();
+      assertEquals("ananjay", principal.getString("sub"));
+      assertEquals("org-a", principal.getString("organisation_id"));
+      assertEquals("analytics-worker", principal.getString("app_id"));
+
+      JsonArray scopes = principal.getJsonArray("scopes");
+      assertNotNull(scopes);
+      assertTrue(scopes.contains(Scopes.OWN_ASSET_MANAGEMENT),
+          "Capped scopes must include own-asset-management");
+
+      JsonArray roles = principal.getJsonObject("realm_access").getJsonArray("roles");
+      assertTrue(roles.contains(DxRole.PROVIDER.keycloakName()),
+          "Owner's roles must be present in principal");
     }
 
     @Test
@@ -100,6 +106,7 @@ class AppCredentialsResolverTest {
       r.resolve(fake.ctx);
 
       assertTrue(fake.nextCalled);
+      assertNotNull(fake.currentUser);
     }
   }
 
@@ -108,7 +115,7 @@ class AppCredentialsResolverTest {
   class Capping {
 
     @Test
-    @DisplayName("app.scopes ∩ owner.flattenedScopes — shrinks when owner lost role")
+    @DisplayName("app.scopes ∩ owner.flattenedScopes — empty when owner lost role")
     void scopeCapShrinksWhenOwnerLostRole() {
       AppPrincipal app =
           new AppPrincipal(
@@ -118,7 +125,7 @@ class AppCredentialsResolverTest {
               List.of(Scopes.OWN_ASSET_MANAGEMENT, Scopes.ASSET_PUBLISH),
               0L,
               true);
-      // Owner now only a CONSUMER → has only data-access → intersection is empty
+      // Owner now only a CONSUMER → has only data-access → intersection with app scopes is empty
       UserSnapshot owner =
           new UserSnapshot("ananjay", "org-a", Set.of(DxRole.CONSUMER), false);
       AppCredentialsResolver r =
@@ -131,9 +138,9 @@ class AppCredentialsResolverTest {
 
       r.resolve(fake.ctx);
 
-      DxPrincipal p = (DxPrincipal) fake.data.get(AuthorizationHandler.PRINCIPAL_KEY);
-      assertTrue(p.getDirectScopes().isEmpty(),
-          "Intersection should be empty when owner no longer has the scope");
+      assertTrue(fake.nextCalled);
+      JsonArray scopes = fake.currentUser.principal().getJsonArray("scopes");
+      assertTrue(scopes.isEmpty(), "Intersection must be empty when owner no longer has the scope");
     }
   }
 
@@ -157,8 +164,7 @@ class AppCredentialsResolverTest {
       AppCredentialsResolver r =
           new AppCredentialsResolver(
               appNotFound(),
-              userReturns(
-                  new UserSnapshot("x", "y", Set.of(), false)));
+              userReturns(new UserSnapshot("x", "y", Set.of(), false)));
       FakeRoutingContext fake =
           new FakeRoutingContext().header("X-App-Id", "w").header("X-App-Secret", "s");
       r.resolve(fake.ctx);
