@@ -6,164 +6,174 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
 import io.vertx.ext.web.RoutingContext;
 import java.util.Arrays;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.cdpg.dx.auth.authorization.model.DxRole;
-import org.cdpg.dx.auth.authorization.model.DxScope;
+import org.cdpg.dx.auth.authentication.handler.AuthenticationHandler;
+import org.cdpg.dx.auth.authorization.model.AuthorizationContext;
+import org.cdpg.dx.auth.authorization.model.ScopeRule;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
+import org.cdpg.dx.auth.model.DxRole;
 
-public class AuthorizationHandler {
+/**
+ * Authorization entry point. All methods are static — this class has no state.
+ * Reads the Vert.x {@link User} set by {@link AuthenticationHandler} and enforces scope
+ * or role requirements.
+ *
+ * <p>All three auth paths (plain JWT, delegation, app credentials) pre-compute a {@code "scopes"}
+ * array in the User principal, so {@link #forScopes} works uniformly across all of them.
+ *
+ * <p>Usage at route level:
+ * <pre>
+ *   router.get("/api/data")
+ *       .handler(authHandler)
+ *       .handler(AuthorizationHandler.forScopes(Scopes.DATA_ACCESS))
+ *       .handler(myService::handle);
+ * </pre>
+ */
+public final class AuthorizationHandler {
+
   private static final Logger LOGGER = LogManager.getLogger(AuthorizationHandler.class);
 
-  public static Handler<RoutingContext> forRoles(DxRole... roles) {
-    Set<String> allowed =
-        Arrays.stream(roles)
-            .map(DxRole::getRole)
-            .map(String::toLowerCase)
-            .collect(Collectors.toSet());
+  /**
+   * @deprecated No longer populated. All auth paths now set {@code ctx.user()} directly.
+   */
+  @Deprecated
+  public static final String PRINCIPAL_KEY = "dxPrincipal";
 
-    boolean isOnlyCompute = roles.length == 1 && roles[0] == DxRole.COMPUTE;
+  private AuthorizationHandler() {}
+
+  /**
+   * Passes if the user's pre-computed {@code "scopes"} contain <em>any</em> of the required
+   * scopes. Works uniformly for plain JWT, delegation, and app-credential users.
+   */
+  public static Handler<RoutingContext> forScopes(String... required) {
+    Objects.requireNonNull(required, "required");
+    if (required.length == 0) throw new IllegalArgumentException("forScopes requires at least one scope");
+
+    Set<String> requiredSet = new HashSet<>(Arrays.asList(required));
 
     return ctx -> {
-      User user = ctx.user();
-      if (user == null) {
-        ctx.fail(new DxUnauthorizedException("User not authenticated."));
-        return;
-      }
+      User user = getUser(ctx);
+      if (user == null) return;
 
-      JsonObject principal = user.principal();
-      JsonObject realmAccess = principal.getJsonObject("realm_access");
+      JsonArray scopes = user.principal().getJsonArray("scopes", new JsonArray());
+      LOGGER.debug("Effective scopes: {}", scopes);
 
-      if (realmAccess == null || !realmAccess.containsKey("roles")) {
-        ctx.fail(new DxForbiddenException("No roles assigned to the user."));
-        return;
-      }
+      boolean match = scopes.stream()
+          .map(Object::toString)
+          .anyMatch(requiredSet::contains);
 
-      JsonArray userRoles = realmAccess.getJsonArray("roles");
-
-      boolean allowedRole =
-          userRoles.stream()
-              .map(Object::toString)
-              .map(String::toLowerCase)
-              .anyMatch(allowed::contains);
-
-      List<String> matchedRoles =
-          userRoles.stream()
-              .map(Object::toString)
-              .map(String::toLowerCase)
-              .filter(allowed::contains)
-              .collect(Collectors.toList());
-
-      if (!matchedRoles.isEmpty()) {
-        ctx.put("allowedRoles", matchedRoles);
-      }
-
-      if (allowedRole) {
+      if (match) {
         ctx.next();
       } else {
-        if (isOnlyCompute) {
-          ctx.fail(new DxForbiddenException("Please upgrade your role to access GPU-based compute."));
-        } else {
-          ctx.fail(new DxForbiddenException("User does not have the required role."));
+        ctx.fail(new DxForbiddenException("Insufficient scope"));
+      }
+    };
+  }
+
+  /**
+   * Passes if the user's {@code realm_access.roles} contain <em>any</em> of the required roles.
+   */
+  public static Handler<RoutingContext> forRoles(DxRole... required) {
+    Objects.requireNonNull(required, "required");
+    if (required.length == 0) throw new IllegalArgumentException("forRoles requires at least one role");
+
+    Set<String> requiredNames = Arrays.stream(required)
+        .map(DxRole::value)
+        .collect(Collectors.toSet());
+
+    return ctx -> {
+      User user = getUser(ctx);
+      if (user == null) return;
+
+      JsonArray roles = user.principal()
+          .getJsonObject("realm_access", new JsonObject())
+          .getJsonArray("roles", new JsonArray());
+
+      boolean match = roles.stream()
+          .map(Object::toString)
+          .anyMatch(requiredNames::contains);
+
+      if (match) {
+        ctx.next();
+      } else {
+        ctx.fail(new DxForbiddenException("User does not hold the required role"));
+      }
+    };
+  }
+
+  /**
+   * Walks rules in order — highest authority first (PLATFORM → ORG → SELF). The first matching
+   * rule wins and publishes an {@link AuthorizationContext} at {@link AuthorizationContext#KEY}.
+   */
+  public static Handler<RoutingContext> forScopesWithContext(ScopeRule... rules) {
+    Objects.requireNonNull(rules, "rules");
+    if (rules.length == 0) throw new IllegalArgumentException("forScopesWithContext requires at least one rule");
+
+    return ctx -> {
+      User user = getUser(ctx);
+      if (user == null) return;
+
+      JsonObject principal = user.principal();
+      JsonArray scopesArr = principal.getJsonArray("scopes", new JsonArray());
+      Set<String> effectiveScopes = scopesArr.stream()
+          .map(Object::toString)
+          .collect(Collectors.toSet());
+
+      String sub   = principal.getString("sub");
+      String orgId = principal.getString("organisation_id");
+
+      for (ScopeRule rule : rules) {
+        if (effectiveScopes.contains(rule.scope())) {
+          AuthorizationContext authCtx = switch (rule.level()) {
+            case PLATFORM -> AuthorizationContext.platform(rule.scope());
+            case ORG      -> AuthorizationContext.org(rule.scope(), orgId);
+            case SELF     -> AuthorizationContext.self(rule.scope(), sub);
+          };
+          ctx.put(AuthorizationContext.KEY, authCtx);
+          ctx.next();
+          return;
         }
       }
+      ctx.fail(new DxForbiddenException("Insufficient scope"));
     };
   }
 
-  public static Handler<RoutingContext> forDelegationScopes(DxScope... scopes) {
-    Set<String> allowed =
-        Arrays.stream(scopes)
-            .map(DxScope::getScope)
-            .map(String::toLowerCase)
-            .collect(Collectors.toSet());
-
-    return ctx -> {
-      User user = ctx.user();
-      if (user == null) {
-        ctx.fail(new DxUnauthorizedException("User not authenticated."));
-        return;
-      }
-
-      JsonObject principal = user.principal();
-
-      JsonArray realmRoles =
-          principal
-              .getJsonObject("realm_access", new JsonObject())
-              .getJsonArray("roles", new JsonArray());
-
-      boolean isPrimaryUser =
-          realmRoles.stream()
-              .map(Object::toString)
-              .anyMatch(role -> !role.equalsIgnoreCase("delegate"));
-
-      if (isPrimaryUser) {
-        LOGGER.debug("Skipping delegation scope check for primary user");
-        ctx.next();
-        return;
-      }
-
-      JsonArray delegationScopes = principal.getJsonArray("delegation_scope");
-
-      if (delegationScopes == null) {
-        ctx.fail(new DxForbiddenException("No delegation scope assigned to the user."));
-        return;
-      }
-
-      boolean delegationPresent =
-          delegationScopes.stream()
-              .map(Object::toString)
-              .map(String::toLowerCase)
-              .anyMatch(allowed::contains);
-
-      List<String> matchedScopes =
-          delegationScopes.stream()
-              .map(Object::toString)
-              .map(String::toLowerCase)
-              .filter(allowed::contains)
-              .collect(Collectors.toList());
-
-      if (!matchedScopes.isEmpty()) {
-        ctx.put("allowedScopes", matchedScopes);
-      }
-
-      if (delegationPresent) {
-        ctx.next();
-      } else {
-        ctx.fail(new DxForbiddenException("User does not have the required scope."));
-      }
-    };
-  }
-
-  public static Handler<RoutingContext> KycVerification(Boolean isKycRequired) {
+  /** Passes immediately when {@code isKycRequired} is false. Otherwise verifies the
+   * {@code kyc_verified} claim in the user principal. */
+  public static Handler<RoutingContext> kycVerification(boolean isKycRequired) {
     if (!isKycRequired) {
       return RoutingContext::next;
     }
-
     return ctx -> {
-      User user = ctx.user();
-      if (user == null) {
-        ctx.fail(new DxUnauthorizedException("User not authenticated."));
-        return;
-      }
-
+      User user = getUser(ctx);
+      if (user == null) return;
       JsonObject principal = user.principal();
-
-      if (principal == null || !principal.containsKey("kyc_verified")) {
+      if (!principal.containsKey("kyc_verified")) {
         ctx.fail(new DxForbiddenException("Missing KYC verification status."));
         return;
       }
-
-      boolean isKycVerified = principal.getBoolean("kyc_verified", false);
-      if (!isKycVerified) {
+      if (!principal.getBoolean("kyc_verified", false)) {
         ctx.fail(new DxForbiddenException("User's KYC is not verified."));
         return;
       }
-
       ctx.next();
     };
+  }
+
+  private static User getUser(RoutingContext ctx) {
+    User user = ctx.user();
+    if (user == null) {
+      ctx.fail(new DxUnauthorizedException("No authenticated user"));
+      return null;
+    }
+    LOGGER.debug("Authenticated user principal: {}", user.principal());
+    return user;
   }
 }

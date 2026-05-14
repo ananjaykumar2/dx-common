@@ -40,8 +40,6 @@ import org.cdpg.dx.auth.authentication.client.JwksResolver;
 import org.cdpg.dx.auth.authentication.handler.CombinedAuthHandler;
 import org.cdpg.dx.auth.authentication.handler.MultiIssuerJwtAuthHandler;
 import org.cdpg.dx.auth.authentication.handler.OptionalMultiIssuerJwtAuthHandler;
-import org.cdpg.dx.auth.v2.handler.AuthenticationHandlerV2;
-import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.common.FailureHandler;
 import org.cdpg.dx.common.HttpStatusCode;
 import org.cdpg.dx.common.URNGenerator;
@@ -214,18 +212,11 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
   }
 
   /**
-   * Optional v2 auth dispatcher. Subclasses return a configured {@link AuthenticationHandlerV2} to
-   * enable the diagnostic route {@code GET /auth/v2/whoami}, which echoes the resolved {@link
-   * DxPrincipal} as JSON. Default: {@code null} — the diagnostic route is not mounted.
-   *
-   * <p>The base chains {@link OptionalMultiIssuerJwtAuthHandler} before this handler so Bearer
-   * tokens are validated when present, without failing non-Bearer requests. Returns 401/403/400 via
-   * the standard {@link FailureHandler}.
-   *
-   * <p>Use this to test the v2 stack end-to-end against a running server before migrating
-   * individual endpoints.
+   * Optional auth dispatcher. Subclasses return a configured
+   * {@link org.cdpg.dx.auth.authentication.handler.AuthenticationHandler} to enable the diagnostic route
+   * Default: {@code null} — the diagnostic route is not mounted.
    */
-  protected AuthenticationHandlerV2 getAuthV2Handler() {
+  protected org.cdpg.dx.auth.authentication.handler.AuthenticationHandler getAuthV2Handler() {
     return null;
   }
 
@@ -290,13 +281,13 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                     new OptionalMultiIssuerJwtAuthHandler(jwksResolver);
 
                 AppIdAuthHandler appIdAuthHandler = getAppIdAuthHandler();
-                  AuthenticationHandlerV2 authV2 = getAuthV2Handler();
+                  org.cdpg.dx.auth.authentication.handler.AuthenticationHandler authV2 = getAuthV2Handler();
 
                   AuthenticationHandler mainAuthHandler;
                   if (authV2 != null) {
                       mainAuthHandler = authV2;
                       LOGGER.debug(
-                              "v2 auth enabled — using AuthenticationHandlerV2 for authorization scheme");
+                              "Using AuthenticationHandler for authorization scheme");
                   } else if (appIdAuthHandler != null) {
                       mainAuthHandler = new CombinedAuthHandler(appIdAuthHandler, jwtHandler);
                       LOGGER.debug(
@@ -321,7 +312,7 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                 routerBuilder.securityHandler("authorization", mainAuthHandler);
                 routerBuilder.securityHandler("optionalAuth", optionalAuthHandler);
                 if (authV2 != null) {
-                  // AuthenticationHandlerV2 handles both JWT and Basic (AppId) auth
+                  // AuthenticationHandler handles both JWT and Basic (AppId) auth
                   routerBuilder.securityHandler("appIdAuth", authV2);
                 } else if (appIdAuthHandler != null) {
                   routerBuilder.securityHandler("appIdAuth", mainAuthHandler);

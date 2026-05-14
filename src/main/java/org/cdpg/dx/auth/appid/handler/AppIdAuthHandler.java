@@ -16,6 +16,7 @@ import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.appid.cache.AppIdCacheService;
 import org.cdpg.dx.auth.appid.client.AppIdVerificationClient;
 import org.cdpg.dx.auth.appid.model.AppIdPrincipal;
+import org.cdpg.dx.auth.authorization.handler.AuthorizationHandler;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 
 /**
@@ -23,7 +24,7 @@ import org.cdpg.dx.common.exception.DxUnauthorizedException;
  *
  * <p>Verifies credentials via gRPC VerifyAppId, sets a minimal {@code ctx.user()} with
  * {@code sub}, {@code iss}, {@code realm_access.roles} so downstream
- * {@link org.cdpg.dx.auth.authorization.handler.AuthorizationHandler} passes, and stores the
+ * {@link AuthorizationHandler} passes, and stores the
  * {@code appId} string in routing-context data under {@link #APP_ID_KEY} so that a subsequent
  * per-entity access handler can perform the per-resource check.
  *
