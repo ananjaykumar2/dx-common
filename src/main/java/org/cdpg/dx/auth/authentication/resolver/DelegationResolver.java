@@ -6,27 +6,29 @@ import io.vertx.ext.auth.User;
 import io.vertx.ext.web.RoutingContext;
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import org.cdpg.dx.auth.authentication.lookup.DelegationLookup;
 import org.cdpg.dx.auth.authentication.lookup.UserLookup;
 import org.cdpg.dx.auth.model.DelegationRecord;
 import org.cdpg.dx.auth.model.DxRole;
-import org.cdpg.dx.auth.model.UserSnapshot;
 import org.cdpg.dx.auth.authorization.registry.SystemRoleScopeMap;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
+import org.cdpg.dx.common.model.DxUser;
 
 /**
- * Resolves a JWT + {@code delegatorId} header into a Vert.x {@link User} acting <em>as</em> the
- * delegator. The JWT must already be validated by an upstream auth handler.
+ * Resolves a JWT + {@code delegatorId} header into a Vert.x {@link User} acting as the delegator.
  *
  * <p>Sets {@code ctx.user()} with a principal JSON containing:
  * <ul>
  *   <li>{@code sub} — delegator's sub (effective identity)
  *   <li>{@code organisation_id} — delegator's org
  *   <li>{@code realm_access.roles} — delegator's current roles
- *   <li>{@code delegation_scope} — capped effective scopes
+ *   <li>{@code scopes} — capped effective scopes
+ *   <li>{@code kyc_verified} — delegator's KYC status
+ *   <li>{@code email_verified} — delegator's email verification status
  *   <li>{@code delegatee_sub} — JWT sub (for audit)
  *   <li>{@code delegatee_org_id} — JWT org (for audit, if present)
  * </ul>
@@ -81,11 +83,12 @@ public final class DelegationResolver {
                   .onFailure(err -> ctx.fail(new DxUnauthorizedException("User lookup failed")))
                   .onSuccess(
                       maybeDelegator -> {
-                        if (maybeDelegator.isEmpty() || maybeDelegator.get().disabled()) {
+                        if (maybeDelegator.isEmpty()
+                            || !Boolean.TRUE.equals(maybeDelegator.get().account_enabled())) {
                           ctx.fail(new DxForbiddenException("Delegator is no longer active"));
                           return;
                         }
-                        UserSnapshot delegator = maybeDelegator.get();
+                        DxUser delegator = maybeDelegator.get();
                         User user = buildUser(delegateeSub, delegateeOrgId, delegator, delegation);
                         ctx.setUser(user);
                         ctx.next();
@@ -96,7 +99,7 @@ public final class DelegationResolver {
   private User buildUser(
       String delegateeSub,
       String delegateeOrgId,
-      UserSnapshot delegator,
+      DxUser delegator,
       DelegationRecord delegation) {
 
     Set<String> delegatorCurrentScopes = flatten(delegator.roles());
@@ -109,15 +112,17 @@ public final class DelegationResolver {
     }
 
     JsonArray rolesArr = new JsonArray();
-    for (DxRole r : delegator.roles()) rolesArr.add(r.value());
+    if (delegator.roles() != null) delegator.roles().forEach(rolesArr::add);
 
     JsonArray scopesArr = new JsonArray();
-    for (String s : capped) scopesArr.add(s);
+    capped.forEach(scopesArr::add);
 
     JsonObject principal =
         new JsonObject()
-            .put("sub", delegator.sub())
+            .put("sub", delegator.sub() != null ? delegator.sub().toString() : null)
             .put("organisation_id", delegator.organisationId())
+            .put("kyc_verified", delegator.kycVerified())
+            .put("email_verified", delegator.emailVerified())
             .put("realm_access", new JsonObject().put("roles", rolesArr))
             .put("scopes", scopesArr)
             .put("delegatee_sub", delegateeSub);
@@ -133,9 +138,12 @@ public final class DelegationResolver {
     return exp != 0 && exp < Instant.now().getEpochSecond();
   }
 
-  private static Set<String> flatten(Set<DxRole> roles) {
+  private static Set<String> flatten(List<String> roleNames) {
+    if (roleNames == null) return Set.of();
     Set<String> out = new HashSet<>();
-    for (DxRole r : roles) out.addAll(SystemRoleScopeMap.getScopes(r));
+    for (String name : roleNames) {
+      DxRole.fromString(name).ifPresent(r -> out.addAll(SystemRoleScopeMap.getScopes(r)));
+    }
     return out;
   }
 }

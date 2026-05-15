@@ -8,6 +8,7 @@ import io.vertx.ext.web.RoutingContext;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -19,15 +20,13 @@ import org.cdpg.dx.auth.authentication.lookup.AppCredentialLookup;
 import org.cdpg.dx.auth.authentication.lookup.UserLookup;
 import org.cdpg.dx.auth.model.AppPrincipal;
 import org.cdpg.dx.auth.model.DxRole;
-import org.cdpg.dx.auth.model.UserSnapshot;
 import org.cdpg.dx.auth.authorization.registry.SystemRoleScopeMap;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
+import org.cdpg.dx.common.model.DxUser;
 
 /**
- * Resolves app credentials (either {@code X-App-Id} + {@code X-App-Secret} headers, or {@code
- * Authorization: Basic base64(appId:secret)}) into a Vert.x {@link User} stored via
- * {@code ctx.setUser()}.
+ * Resolves app credentials into a Vert.x {@link User} stored via {@code ctx.setUser()}.
  *
  * <p>The produced User principal contains:
  * <ul>
@@ -35,6 +34,8 @@ import org.cdpg.dx.common.exception.DxUnauthorizedException;
  *   <li>{@code organisation_id} — owner's org
  *   <li>{@code realm_access.roles} — owner's current roles
  *   <li>{@code scopes} — intersection of app's stored scopes and owner's role-derived scopes
+ *   <li>{@code kyc_verified} — owner's KYC status
+ *   <li>{@code email_verified} — owner's email verification status
  *   <li>{@code app_id} — the app identifier (for auditing)
  * </ul>
  */
@@ -49,12 +50,6 @@ public final class AppCredentialsResolver {
     this.userLookup = Objects.requireNonNull(userLookup, "userLookup");
   }
 
-  /**
-   * Authentication contract for Vert.x {@code ChainAuthHandler}: verifies app credentials and
-   * returns a fully-built {@link User} via a {@link Future}. Does NOT touch the RoutingContext —
-   * the caller ({@link AuthenticationHandler}) is responsible for
-   * {@code ctx.setUser()} and moving {@link AppIdAuthHandler#PRINCIPAL_APP_ID_KEY} to context data.
-   */
   public Future<User> authenticateForChain(RoutingContext ctx) {
     Credentials creds = extractCredentials(ctx);
     if (creds == null) {
@@ -77,13 +72,12 @@ public final class AppCredentialsResolver {
                 return Future.failedFuture(new DxUnauthorizedException("User lookup failed"));
               })
               .compose(maybeOwner -> {
-                if (maybeOwner.isEmpty() || maybeOwner.get().disabled()) {
+                if (maybeOwner.isEmpty() || !Boolean.TRUE.equals(maybeOwner.get().account_enabled())) {
                   return Future.failedFuture(new DxForbiddenException("App owner is no longer active"));
                 }
-                UserSnapshot owner = maybeOwner.get();
+                DxUser owner = maybeOwner.get();
                 LOGGER.info("App owner lookup successful for sub: {}, orgId: {}", owner.sub(), owner.organisationId());
                 User user = buildUser(app, owner);
-                // Stash appId for AuthenticationHandler.postAuthentication() to move to ctx data
                 user.principal().put(AppIdAuthHandler.PRINCIPAL_APP_ID_KEY, app.appId());
                 LOGGER.debug("app user principal for chain auth: {}", user.principal());
                 return Future.succeededFuture(user);
@@ -108,24 +102,18 @@ public final class AppCredentialsResolver {
                 return;
               }
               AppPrincipal app = maybeApp.get();
-              LOGGER.info(
-                  "App authentication successful for appId: {}, ownerSub: {}",
-                  app.appId(),
-                  app.ownerSub());
+              LOGGER.info("App authentication successful for appId: {}, ownerSub: {}", app.appId(), app.ownerSub());
               userLookup
                   .findBySub(app.ownerSub())
                   .onFailure(err -> ctx.fail(new DxUnauthorizedException("User lookup failed")))
                   .onSuccess(
                       maybeOwner -> {
-                        if (maybeOwner.isEmpty() || maybeOwner.get().disabled()) {
+                        if (maybeOwner.isEmpty() || !Boolean.TRUE.equals(maybeOwner.get().account_enabled())) {
                           ctx.fail(new DxForbiddenException("App owner is no longer active"));
                           return;
                         }
-                        UserSnapshot owner = maybeOwner.get();
-                        LOGGER.info(
-                            "App owner lookup successful for sub: {}, orgId: {}",
-                            owner.sub(),
-                            owner.organisationId());
+                        DxUser owner = maybeOwner.get();
+                        LOGGER.info("App owner lookup successful for sub: {}, orgId: {}", owner.sub(), owner.organisationId());
                         User user = buildUser(app, owner);
                         LOGGER.debug("app user principal: {}", user.principal());
                         ctx.setUser(user);
@@ -135,22 +123,24 @@ public final class AppCredentialsResolver {
             });
   }
 
-  private User buildUser(AppPrincipal app, UserSnapshot owner) {
+  private User buildUser(AppPrincipal app, DxUser owner) {
     Set<String> ownerCurrentScopes = flatten(owner.roles());
     Set<String> capped = intersect(app.appScopes(), ownerCurrentScopes);
 
     String ownerOrgId = app.ownerOrgId() != null ? app.ownerOrgId() : owner.organisationId();
 
     JsonArray rolesArr = new JsonArray();
-    owner.roles().forEach(r -> rolesArr.add(r.value()));
+    if (owner.roles() != null) owner.roles().forEach(rolesArr::add);
 
     JsonArray scopesArr = new JsonArray();
     capped.forEach(scopesArr::add);
 
     JsonObject principal = new JsonObject()
-        .put("sub", owner.sub())
+        .put("sub", owner.sub() != null ? owner.sub().toString() : null)
         .put("iss", "dx-controlplane")
         .put("organisation_id", ownerOrgId)
+        .put("kyc_verified", owner.kycVerified())
+        .put("email_verified", owner.emailVerified())
         .put("realm_access", new JsonObject().put("roles", rolesArr))
         .put("scopes", scopesArr)
         .put("app_id", app.appId());
@@ -158,9 +148,12 @@ public final class AppCredentialsResolver {
     return User.create(principal);
   }
 
-  private static Set<String> flatten(Set<DxRole> roles) {
+  private static Set<String> flatten(List<String> roleNames) {
+    if (roleNames == null) return Set.of();
     Set<String> out = new HashSet<>();
-    for (DxRole r : roles) out.addAll(SystemRoleScopeMap.getScopes(r));
+    for (String name : roleNames) {
+      DxRole.fromString(name).ifPresent(r -> out.addAll(SystemRoleScopeMap.getScopes(r)));
+    }
     return out;
   }
 
@@ -170,7 +163,6 @@ public final class AppCredentialsResolver {
     return out;
   }
 
-  /** Prefers {@code X-App-Id}/{@code X-App-Secret}; falls back to {@code Authorization: Basic}. */
   static Credentials extractCredentials(RoutingContext ctx) {
     String appId = ctx.request().getHeader("X-App-Id");
     String secret = ctx.request().getHeader("X-App-Secret");

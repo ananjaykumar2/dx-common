@@ -6,23 +6,36 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.cdpg.dx.auth.authentication.lookup.DelegationLookup;
 import org.cdpg.dx.auth.authentication.lookup.UserLookup;
 import org.cdpg.dx.auth.authentication.resolver.DelegationResolver;
 import org.cdpg.dx.auth.model.DelegationRecord;
-import org.cdpg.dx.auth.model.DxRole;
 import org.cdpg.dx.auth.model.Scopes;
-import org.cdpg.dx.auth.model.UserSnapshot;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
+import org.cdpg.dx.common.model.DxUser;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 @DisplayName("DelegationResolver Tests")
 class DelegationResolverTest {
+
+  static final UUID ALICE_UUID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+  static final UUID BOB_UUID   = UUID.fromString("00000000-0000-0000-0000-000000000002");
+
+  private static DxUser user(UUID sub, String orgId, boolean enabled, String... roles) {
+    return new DxUser(
+        Arrays.asList(roles), orgId, null, sub,
+        false, false, null, null, null, null, null,
+        null, null, null, null, null, null, null,
+        enabled, null, null, null, null, null);
+  }
 
   private static JsonObject jwt(String sub, String org, String... roles) {
     JsonArray rolesArr = new JsonArray();
@@ -41,7 +54,7 @@ class DelegationResolverTest {
     return (delegator, delegatee) -> Future.succeededFuture(Optional.empty());
   }
 
-  private static UserLookup userReturns(UserSnapshot u) {
+  private static UserLookup userReturns(DxUser u) {
     return sub -> Future.succeededFuture(Optional.of(u));
   }
 
@@ -53,18 +66,15 @@ class DelegationResolverTest {
     @DisplayName("partial delegation — ctx.user() is set to delegator with capped scopes")
     void partialDelegationHappy() {
       DelegationRecord d =
-          new DelegationRecord(
-              "alice", "bob", Set.of(Scopes.DATA_ACCESS), false, true, 0L);
-      // Alice is Consumer + OrgAdmin — so she has data-access
-      UserSnapshot alice =
-          new UserSnapshot(
-              "alice", "org-a", Set.of(DxRole.CONSUMER, DxRole.ORG_ADMIN), false);
+          new DelegationRecord(ALICE_UUID.toString(), BOB_UUID.toString(),
+              Set.of(Scopes.DATA_ACCESS), false, true, 0L);
+      DxUser alice = user(ALICE_UUID, "org-a", true, "consumer", "org_admin");
       DelegationResolver r = new DelegationResolver(delReturns(d), userReturns(alice));
 
       FakeRoutingContext fake =
           new FakeRoutingContext()
-              .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("did", "alice");
+              .userWithClaims(jwt(BOB_UUID.toString(), "org-b", "provider"))
+              .header("did", ALICE_UUID.toString());
 
       r.resolve(fake.ctx);
 
@@ -72,12 +82,9 @@ class DelegationResolverTest {
       assertNotNull(fake.currentUser, "ctx.setUser() must be called on success");
 
       JsonObject principal = fake.currentUser.principal();
-      // effective identity is the delegator
-      assertEquals("alice", principal.getString("sub"));
+      assertEquals(ALICE_UUID.toString(), principal.getString("sub"));
       assertEquals("org-a", principal.getString("organisation_id"));
-      // delegatee stored for audit
-      assertEquals("bob", principal.getString("delegatee_sub"));
-      // scopes capped to delegation grant ∩ delegator's current scopes
+      assertEquals(BOB_UUID.toString(), principal.getString("delegatee_sub"));
       JsonArray scopes = principal.getJsonArray("scopes");
       assertNotNull(scopes);
       assertTrue(scopes.contains(Scopes.DATA_ACCESS));
@@ -87,15 +94,15 @@ class DelegationResolverTest {
     @DisplayName("full delegation — scopes equal delegator's current flattened scopes")
     void fullDelegationTracksDelegator() {
       DelegationRecord d =
-          new DelegationRecord("alice", "bob", Set.of(), /*fullDelegation*/ true, true, 0L);
-      UserSnapshot alice =
-          new UserSnapshot("alice", "org-a", Set.of(DxRole.PROVIDER), false);
+          new DelegationRecord(ALICE_UUID.toString(), BOB_UUID.toString(),
+              Set.of(), true, true, 0L);
+      DxUser alice = user(ALICE_UUID, "org-a", true, "provider");
       DelegationResolver r = new DelegationResolver(delReturns(d), userReturns(alice));
 
       FakeRoutingContext fake =
           new FakeRoutingContext()
-              .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("did", "alice");
+              .userWithClaims(jwt(BOB_UUID.toString(), "org-b", "provider"))
+              .header("did", ALICE_UUID.toString());
 
       r.resolve(fake.ctx);
 
@@ -113,17 +120,16 @@ class DelegationResolverTest {
     @Test
     @DisplayName("partial delegation scope absent from delegator's current roles → capped out")
     void scopeDroppedWhenDelegatorLostRole() {
-      // Delegation grants data-access, but Alice is now only a Provider (no data-access)
       DelegationRecord d =
-          new DelegationRecord("alice", "bob", Set.of(Scopes.DATA_ACCESS), false, true, 0L);
-      UserSnapshot alice =
-          new UserSnapshot("alice", "org-a", Set.of(DxRole.PROVIDER), false);
+          new DelegationRecord(ALICE_UUID.toString(), BOB_UUID.toString(),
+              Set.of(Scopes.DATA_ACCESS), false, true, 0L);
+      DxUser alice = user(ALICE_UUID, "org-a", true, "provider");
       DelegationResolver r = new DelegationResolver(delReturns(d), userReturns(alice));
 
       FakeRoutingContext fake =
           new FakeRoutingContext()
-              .userWithClaims(jwt("bob", "org-b", "provider"))
-              .header("did", "alice");
+              .userWithClaims(jwt(BOB_UUID.toString(), "org-b", "provider"))
+              .header("did", ALICE_UUID.toString());
 
       r.resolve(fake.ctx);
 
@@ -142,11 +148,9 @@ class DelegationResolverTest {
     @DisplayName("missing did header → 401")
     void missingHeader() {
       DelegationResolver r =
-          new DelegationResolver(
-              delNotFound(),
-              userReturns(new UserSnapshot("alice", "org-a", Set.of(), false)));
+          new DelegationResolver(delNotFound(), userReturns(user(ALICE_UUID, "org-a", true)));
       FakeRoutingContext fake =
-          new FakeRoutingContext().userWithClaims(jwt("bob", "org-b"));
+          new FakeRoutingContext().userWithClaims(jwt(BOB_UUID.toString(), "org-b"));
       r.resolve(fake.ctx);
       assertInstanceOf(DxUnauthorizedException.class, fake.failedWith);
     }
@@ -155,13 +159,11 @@ class DelegationResolverTest {
     @DisplayName("no active delegation → 403")
     void noActiveDelegation() {
       DelegationResolver r =
-          new DelegationResolver(
-              delNotFound(),
-              userReturns(new UserSnapshot("alice", "org-a", Set.of(), false)));
+          new DelegationResolver(delNotFound(), userReturns(user(ALICE_UUID, "org-a", true)));
       FakeRoutingContext fake =
           new FakeRoutingContext()
-              .userWithClaims(jwt("bob", "org-b"))
-              .header("did", "alice");
+              .userWithClaims(jwt(BOB_UUID.toString(), "org-b"))
+              .header("did", ALICE_UUID.toString());
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -170,15 +172,14 @@ class DelegationResolverTest {
     @DisplayName("inactive delegation record → 403")
     void delegationMarkedInactive() {
       DelegationRecord inactive =
-          new DelegationRecord("alice", "bob", Set.of(), true, /*active*/ false, 0L);
+          new DelegationRecord(ALICE_UUID.toString(), BOB_UUID.toString(),
+              Set.of(), true, false, 0L);
       DelegationResolver r =
-          new DelegationResolver(
-              delReturns(inactive),
-              userReturns(new UserSnapshot("alice", "org-a", Set.of(), false)));
+          new DelegationResolver(delReturns(inactive), userReturns(user(ALICE_UUID, "org-a", true)));
       FakeRoutingContext fake =
           new FakeRoutingContext()
-              .userWithClaims(jwt("bob", "org-b"))
-              .header("did", "alice");
+              .userWithClaims(jwt(BOB_UUID.toString(), "org-b"))
+              .header("did", ALICE_UUID.toString());
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -188,15 +189,14 @@ class DelegationResolverTest {
     void expiredDelegation() {
       long expired = Instant.now().getEpochSecond() - 3600;
       DelegationRecord d =
-          new DelegationRecord("alice", "bob", Set.of(), true, true, expired);
+          new DelegationRecord(ALICE_UUID.toString(), BOB_UUID.toString(),
+              Set.of(), true, true, expired);
       DelegationResolver r =
-          new DelegationResolver(
-              delReturns(d),
-              userReturns(new UserSnapshot("alice", "org-a", Set.of(DxRole.PROVIDER), false)));
+          new DelegationResolver(delReturns(d), userReturns(user(ALICE_UUID, "org-a", true, "provider")));
       FakeRoutingContext fake =
           new FakeRoutingContext()
-              .userWithClaims(jwt("bob", "org-b"))
-              .header("did", "alice");
+              .userWithClaims(jwt(BOB_UUID.toString(), "org-b"))
+              .header("did", ALICE_UUID.toString());
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -205,15 +205,15 @@ class DelegationResolverTest {
     @DisplayName("delegator disabled → 403")
     void delegatorDisabled() {
       DelegationRecord d =
-          new DelegationRecord("alice", "bob", Set.of(), true, true, 0L);
-      UserSnapshot disabled =
-          new UserSnapshot("alice", "org-a", Set.of(DxRole.PROVIDER), /*disabled*/ true);
+          new DelegationRecord(ALICE_UUID.toString(), BOB_UUID.toString(),
+              Set.of(), true, true, 0L);
+      DxUser disabled = user(ALICE_UUID, "org-a", false, "provider");
       DelegationResolver r =
           new DelegationResolver(delReturns(d), userReturns(disabled));
       FakeRoutingContext fake =
           new FakeRoutingContext()
-              .userWithClaims(jwt("bob", "org-b"))
-              .header("did", "alice");
+              .userWithClaims(jwt(BOB_UUID.toString(), "org-b"))
+              .header("did", ALICE_UUID.toString());
       r.resolve(fake.ctx);
       assertInstanceOf(DxForbiddenException.class, fake.failedWith);
     }
@@ -222,11 +222,9 @@ class DelegationResolverTest {
     @DisplayName("missing JWT user → 401")
     void missingUser() {
       DelegationResolver r =
-          new DelegationResolver(
-              delNotFound(),
-              userReturns(new UserSnapshot("x", "y", Set.of(), false)));
+          new DelegationResolver(delNotFound(), userReturns(user(ALICE_UUID, "org-a", true)));
       FakeRoutingContext fake =
-          new FakeRoutingContext().noUser().header("did", "alice");
+          new FakeRoutingContext().noUser().header("did", ALICE_UUID.toString());
       r.resolve(fake.ctx);
       assertInstanceOf(DxUnauthorizedException.class, fake.failedWith);
     }
