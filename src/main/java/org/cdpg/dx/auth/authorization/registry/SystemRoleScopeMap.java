@@ -34,7 +34,9 @@ public final class SystemRoleScopeMap {
             Scopes.ASSET_MANAGEMENT,
             Scopes.USER_MANAGEMENT,
             Scopes.PUBLISHER_MANAGEMENT,
-            Scopes.ROLE_MANAGEMENT));
+            Scopes.ROLE_MANAGEMENT,
+            Scopes.CREDIT_MANAGEMENT,
+            Scopes.COMPUTE_MANAGEMENT));
     m.put(DxRole.COMPUTE, Set.of(Scopes.COMPUTE_MANAGEMENT));
     MAP = Map.copyOf(m);
   }

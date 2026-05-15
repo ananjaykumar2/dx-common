@@ -40,7 +40,7 @@ class SystemRoleScopeMapTest {
   }
 
   @Test
-  @DisplayName("COS_ADMIN → six platform-level scopes")
+  @DisplayName("COS_ADMIN → eight platform-level scopes")
   void cosAdmin() {
     assertEquals(
         Set.of(
@@ -49,7 +49,9 @@ class SystemRoleScopeMapTest {
             Scopes.ASSET_MANAGEMENT,
             Scopes.USER_MANAGEMENT,
             Scopes.PUBLISHER_MANAGEMENT,
-            Scopes.ROLE_MANAGEMENT),
+            Scopes.ROLE_MANAGEMENT,
+            Scopes.CREDIT_MANAGEMENT,
+            Scopes.COMPUTE_MANAGEMENT),
         SystemRoleScopeMap.getScopes(DxRole.COS_ADMIN));
   }
 
