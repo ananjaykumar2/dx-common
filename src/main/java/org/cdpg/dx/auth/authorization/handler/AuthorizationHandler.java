@@ -16,9 +16,11 @@ import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.authentication.handler.AuthenticationHandler;
 import org.cdpg.dx.auth.authorization.model.AuthorizationContext;
 import org.cdpg.dx.auth.authorization.model.ScopeRule;
+import org.cdpg.dx.auth.common.AuthConstants;
+import org.cdpg.dx.auth.model.DxRole;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
-import org.cdpg.dx.auth.model.DxRole;
+import org.cdpg.dx.keycloak.config.KeycloakConstants;
 
 /**
  * Authorization entry point. All methods are static — this class has no state.
@@ -62,7 +64,7 @@ public final class AuthorizationHandler {
       User user = getUser(ctx);
       if (user == null) return;
 
-      JsonArray scopes = user.principal().getJsonArray("scopes", new JsonArray());
+      JsonArray scopes = user.principal().getJsonArray(KeycloakConstants.CLAIM_SCOPES, new JsonArray());
       LOGGER.debug("Effective scopes: {}", scopes);
 
       boolean match = scopes.stream()
@@ -72,7 +74,7 @@ public final class AuthorizationHandler {
       if (match) {
         ctx.next();
       } else {
-        ctx.fail(new DxForbiddenException("Insufficient scope"));
+        ctx.fail(new DxForbiddenException(AuthConstants.INSUFFICIENT_SCOPE));
       }
     };
   }
@@ -93,8 +95,8 @@ public final class AuthorizationHandler {
       if (user == null) return;
 
       JsonArray roles = user.principal()
-          .getJsonObject("realm_access", new JsonObject())
-          .getJsonArray("roles", new JsonArray());
+          .getJsonObject(KeycloakConstants.CLAIM_REALM_ACCESS, new JsonObject())
+          .getJsonArray(KeycloakConstants.CLAIM_ROLES, new JsonArray());
 
       boolean match = roles.stream()
           .map(Object::toString)
@@ -103,7 +105,7 @@ public final class AuthorizationHandler {
       if (match) {
         ctx.next();
       } else {
-        ctx.fail(new DxForbiddenException("User does not hold the required role"));
+        ctx.fail(new DxForbiddenException(AuthConstants.WRONG_ROLE));
       }
     };
   }
@@ -121,13 +123,13 @@ public final class AuthorizationHandler {
       if (user == null) return;
 
       JsonObject principal = user.principal();
-      JsonArray scopesArr = principal.getJsonArray("scopes", new JsonArray());
+      JsonArray scopesArr = principal.getJsonArray(KeycloakConstants.CLAIM_SCOPES, new JsonArray());
       Set<String> effectiveScopes = scopesArr.stream()
           .map(Object::toString)
           .collect(Collectors.toSet());
 
-      String sub   = principal.getString("sub");
-      String orgId = principal.getString("organisation_id");
+      String sub   = principal.getString(KeycloakConstants.CLAIM_SUB);
+      String orgId = principal.getString(KeycloakConstants.ORGANISATION_ID);
 
       for (ScopeRule rule : rules) {
         if (effectiveScopes.contains(rule.scope())) {
@@ -141,7 +143,7 @@ public final class AuthorizationHandler {
           return;
         }
       }
-      ctx.fail(new DxForbiddenException("Insufficient scope"));
+      ctx.fail(new DxForbiddenException(AuthConstants.INSUFFICIENT_SCOPE));
     };
   }
 
@@ -155,11 +157,11 @@ public final class AuthorizationHandler {
       User user = getUser(ctx);
       if (user == null) return;
       JsonObject principal = user.principal();
-      if (!principal.containsKey("kyc_verified")) {
+      if (!principal.containsKey(KeycloakConstants.KYC_VERIFIED)) {
         ctx.fail(new DxForbiddenException("Missing KYC verification status."));
         return;
       }
-      if (!principal.getBoolean("kyc_verified", false)) {
+      if (!principal.getBoolean(KeycloakConstants.KYC_VERIFIED, false)) {
         ctx.fail(new DxForbiddenException("User's KYC is not verified."));
         return;
       }
@@ -170,7 +172,7 @@ public final class AuthorizationHandler {
   private static User getUser(RoutingContext ctx) {
     User user = ctx.user();
     if (user == null) {
-      ctx.fail(new DxUnauthorizedException("No authenticated user"));
+      ctx.fail(new DxUnauthorizedException(AuthConstants.NO_AUTHENTICATED_USER));
       return null;
     }
     LOGGER.debug("Authenticated user principal: {}", user.principal());

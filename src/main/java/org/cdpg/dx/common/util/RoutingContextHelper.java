@@ -12,8 +12,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auditing.model.AuditLog;
 import org.cdpg.dx.auth.authentication.exception.AuthenticationException;
+import org.cdpg.dx.auth.common.AuthConstants;
 import org.cdpg.dx.common.exception.DxBadRequestException;
 import org.cdpg.dx.common.model.DxUser;
+import org.cdpg.dx.keycloak.config.KeycloakConstants;
 
 /**
  * Common routing context helper with shared methods for getting/setting context data. Base projects
@@ -86,7 +88,7 @@ public class RoutingContextHelper {
 
   public static String getTokenOrThrow(RoutingContext routingContext) {
     return getToken(routingContext)
-        .orElseThrow(() -> new AuthenticationException("Token is invalid"));
+        .orElseThrow(() -> new AuthenticationException(AuthConstants.INVALID_TOKEN));
   }
 
   // --- Auth info ---
@@ -225,33 +227,33 @@ public class RoutingContextHelper {
 
     List<String> roles =
         principal
-            .getJsonObject("realm_access", new JsonObject())
-            .getJsonArray("roles", new JsonArray())
+            .getJsonObject(KeycloakConstants.CLAIM_REALM_ACCESS, new JsonObject())
+            .getJsonArray(KeycloakConstants.CLAIM_ROLES, new JsonArray())
             .getList();
 
     UUID userId;
     try {
-      userId = UUID.fromString(principal.getString("sub"));
+      userId = UUID.fromString(principal.getString(KeycloakConstants.CLAIM_SUB));
     } catch (IllegalArgumentException | NullPointerException e) {
-      throw new DxBadRequestException("Invalid or missing 'sub' UUID in token");
+      throw new DxBadRequestException(AuthConstants.INVALID_SUB_UUID);
     }
 
-    JsonArray scopes = principal.getJsonArray("scopes", new JsonArray());
-    String delegateeId = principal.getString("delegatee_sub", null);
-    String appId = principal.getString("app_id", null);
+    JsonArray scopes     = principal.getJsonArray(KeycloakConstants.CLAIM_SCOPES, new JsonArray());
+    String delegateeId   = principal.getString(KeycloakConstants.CLAIM_DELEGATEE_SUB, null);
+    String appId         = principal.getString(KeycloakConstants.CLAIM_APP_ID, null);
 
     return new DxUser(
         roles,
-        principal.getString("organisation_id", null),
-        principal.getString("organisation_name", null),
+        principal.getString(KeycloakConstants.ORGANISATION_ID, null),
+        principal.getString(KeycloakConstants.ORGANISATION_NAME, null),
         userId,
-        principal.getBoolean("email_verified", false),
-        principal.getBoolean("kyc_verified", false),
-        principal.getString("name"),
-        principal.getString("preferred_username"),
-        principal.getString("given_name"),
-        principal.getString("family_name"),
-        principal.getString("email"),
+        principal.getBoolean(KeycloakConstants.CLAIM_EMAIL_VERIFIED, false),
+        principal.getBoolean(KeycloakConstants.KYC_VERIFIED, false),
+        principal.getString(KeycloakConstants.CLAIM_NAME),
+        principal.getString(KeycloakConstants.CLAIM_PREFERRED_USERNAME),
+        principal.getString(KeycloakConstants.CLAIM_GIVEN_NAME),
+        principal.getString(KeycloakConstants.CLAIM_FAMILY_NAME),
+        principal.getString(KeycloakConstants.CLAIM_EMAIL),
         new ArrayList<>(),
         new JsonObject(),
         null,
@@ -260,8 +262,8 @@ public class RoutingContextHelper {
         "",
         "",
         null,
-        principal.getString("did", null),
-        principal.getString("aud", null),
+        principal.getString(KeycloakConstants.DID, null),
+        principal.getString(KeycloakConstants.AUD, null),
         scopes,
         delegateeId,
         appId);

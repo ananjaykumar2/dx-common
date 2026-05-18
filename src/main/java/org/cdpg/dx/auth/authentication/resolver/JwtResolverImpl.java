@@ -11,8 +11,10 @@ import java.util.Set;
 import org.cdpg.dx.auth.authentication.client.JwksResolver;
 import org.cdpg.dx.auth.authentication.util.JwtTokenUtil;
 import org.cdpg.dx.auth.authorization.registry.SystemRoleScopeMap;
+import org.cdpg.dx.auth.common.AuthConstants;
 import org.cdpg.dx.auth.model.DxRole;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
+import org.cdpg.dx.keycloak.config.KeycloakConstants;
 
 public final class JwtResolverImpl implements JwtResolver {
 
@@ -38,14 +40,14 @@ public final class JwtResolverImpl implements JwtResolver {
         .compose(jwtAuth -> jwtAuth.authenticate(new TokenCredentials(token)))
         .map(JwtResolverImpl::enrichWithScopes)
         .recover(err -> Future.failedFuture(
-            new DxUnauthorizedException("Unauthorized: %s".formatted(err.getMessage()))));
+            new DxUnauthorizedException(AuthConstants.UNAUTHORIZED.formatted(err.getMessage()))));
   }
 
   private static User enrichWithScopes(User jwtUser) {
     JsonObject principal = jwtUser.principal().copy();
     JsonArray roles = principal
-        .getJsonObject("realm_access", new JsonObject())
-        .getJsonArray("roles", new JsonArray());
+        .getJsonObject(KeycloakConstants.CLAIM_REALM_ACCESS, new JsonObject())
+        .getJsonArray(KeycloakConstants.CLAIM_ROLES, new JsonArray());
 
     Set<String> scopeSet = new HashSet<>();
     for (Object r : roles) {
@@ -55,7 +57,7 @@ public final class JwtResolverImpl implements JwtResolver {
 
     JsonArray scopesArr = new JsonArray();
     scopeSet.forEach(scopesArr::add);
-    principal.put("scopes", scopesArr);
+    principal.put(KeycloakConstants.CLAIM_SCOPES, scopesArr);
 
     return User.create(principal);
   }

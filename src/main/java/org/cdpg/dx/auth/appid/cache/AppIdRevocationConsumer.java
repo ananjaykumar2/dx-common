@@ -7,6 +7,7 @@ import io.vertx.rabbitmq.QueueOptions;
 import io.vertx.rabbitmq.RabbitMQClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.cdpg.dx.auth.appid.handler.AppIdAuthHandler;
 
 /**
  * Consumes AppId revocation messages from RabbitMQ and directly invalidates
@@ -66,7 +67,7 @@ public class AppIdRevocationConsumer {
             }
             try {
               JsonObject payload = new JsonObject(body);
-              String appId = payload.getString("appId");
+              String appId = payload.getString(AppIdAuthHandler.APP_ID_KEY);
               if (appId == null || appId.isBlank()) {
                 LOGGER.warn("Missing or blank appId in revocation message: {}", payload);
                 return;

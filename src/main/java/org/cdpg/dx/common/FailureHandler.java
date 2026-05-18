@@ -8,6 +8,7 @@ import io.vertx.ext.web.validation.RequestPredicateException;
 import io.vertx.json.schema.ValidationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.cdpg.dx.common.config.HttpConstants;
 import org.cdpg.dx.common.exception.DxInternalServerErrorException;
 import org.cdpg.dx.common.exception.DxTimeOutException;
 import org.cdpg.dx.common.response.DxErrorResponse;
@@ -18,10 +19,10 @@ import org.cdpg.dx.common.util.ThrowableUtils;
 public class FailureHandler implements Handler<RoutingContext> {
 
   private static final Logger LOGGER = LogManager.getLogger(FailureHandler.class);
-  private static final String CONTENT_TYPE = "content-type";
-  private static final String APPLICATION_JSON = "application/json";
   private static final String HEADER_ALLOW_ORIGIN = "Access-Control-Allow-Origin";
-  private static final String HEADER_HOST = "Host";
+  private static final String HEADER_HOST         = "Host";
+  private static final String HEADER_ALLOW_METHODS = "Access-Control-Allow-Methods";
+  private static final String HEADER_ALLOW_HEADERS = "Access-Control-Allow-Headers";
 
   private final URNGenerator urnGenerator;
   private final String ngsildPathPattern;
@@ -75,10 +76,10 @@ public class FailureHandler implements Handler<RoutingContext> {
       LOGGER.error("Validation error: {}", failure.getMessage(), failure);
       context
           .response()
-          .putHeader(CONTENT_TYPE, APPLICATION_JSON)
+          .putHeader(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.APPLICATION_JSON)
           .putHeader(HEADER_ALLOW_ORIGIN, "*")
-          .putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-          .putHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
+          .putHeader(HEADER_ALLOW_METHODS, HttpConstants.CORS_METHODS)
+          .putHeader(HEADER_ALLOW_HEADERS, HttpConstants.CORS_HEADERS)
           .setStatusCode(400)
           .end(
               ResponseUtil.generateResponse(
@@ -111,10 +112,10 @@ public class FailureHandler implements Handler<RoutingContext> {
 
       context
           .response()
-          .putHeader(CONTENT_TYPE, APPLICATION_JSON)
+          .putHeader(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.APPLICATION_JSON)
           .putHeader(HEADER_ALLOW_ORIGIN, "*")
-          .putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-          .putHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
+          .putHeader(HEADER_ALLOW_METHODS, HttpConstants.CORS_METHODS)
+          .putHeader(HEADER_ALLOW_HEADERS, HttpConstants.CORS_HEADERS)
           .setStatusCode(status)
           .end(errorResponse.toJson().encode());
     }
@@ -141,10 +142,10 @@ public class FailureHandler implements Handler<RoutingContext> {
         || failure instanceof ParameterProcessorException) {
       context
           .response()
-          .putHeader(CONTENT_TYPE, APPLICATION_JSON)
+          .putHeader(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.APPLICATION_JSON)
           .putHeader(HEADER_ALLOW_ORIGIN, "*")
-          .putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-          .putHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
+          .putHeader(HEADER_ALLOW_METHODS, HttpConstants.CORS_METHODS)
+          .putHeader(HEADER_ALLOW_HEADERS, HttpConstants.CORS_HEADERS)
           .setStatusCode(400)
           .end(
               ResponseUtilNGSILD.generateResponse(
@@ -178,10 +179,10 @@ public class FailureHandler implements Handler<RoutingContext> {
 
       context
           .response()
-          .putHeader(CONTENT_TYPE, APPLICATION_JSON)
+          .putHeader(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.APPLICATION_JSON)
           .putHeader(HEADER_ALLOW_ORIGIN, "*")
-          .putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-          .putHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
+          .putHeader(HEADER_ALLOW_METHODS, HttpConstants.CORS_METHODS)
+          .putHeader(HEADER_ALLOW_HEADERS, HttpConstants.CORS_HEADERS)
           .setStatusCode(status)
           .end(errorResponse.toJson().encode());
     }

@@ -10,15 +10,17 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.impl.AuthenticationHandlerInternal;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.List;
 import java.util.Objects;
 import org.cdpg.dx.auth.appid.handler.AppIdAuthHandler;
 import org.cdpg.dx.auth.authentication.resolver.AppCredentialsResolver;
 import org.cdpg.dx.auth.authentication.resolver.DelegationResolver;
 import org.cdpg.dx.auth.authentication.resolver.JwtResolver;
+import org.cdpg.dx.auth.common.AuthConstants;
+import org.cdpg.dx.common.config.HttpConstants;
 import org.cdpg.dx.common.exception.DxBadRequestException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 import org.cdpg.dx.common.model.DxUser;
+import org.cdpg.dx.keycloak.config.KeycloakConstants;
 
 /**
  * Authentication entry point. Dispatches to the appropriate resolver based on credentials and sets
@@ -67,16 +69,23 @@ public final class AuthenticationHandler implements AuthenticationHandlerInterna
 
   @Override
   public void authenticate(RoutingContext ctx, Handler<AsyncResult<User>> handler) {
-    String authHeader = ctx.request().getHeader("Authorization");
+    String authHeader = ctx.request().getHeader(HttpConstants.HEADER_AUTHORIZATION);
 
-    boolean hasBearer = authHeader != null && authHeader.startsWith("Bearer ");
-    boolean hasBasic = authHeader != null && authHeader.startsWith("Basic ");
+    boolean hasBearer = authHeader != null && authHeader.startsWith(HttpConstants.BEARER_PREFIX);
+    boolean hasBasic  = authHeader != null && authHeader.startsWith(HttpConstants.BASIC_PREFIX);
+
+    if (hasBasic && hasBearer) {
+      handler.handle(
+          Future.failedFuture(
+              new DxBadRequestException(AuthConstants.AMBIGUOUS_CREDENTIALS)));
+      return;
+    }
 
     if (hasBasic) {
       String[] creds = extractBasicCredentials(authHeader);
       if (creds == null) {
         handler.handle(
-            Future.failedFuture(new DxUnauthorizedException("Invalid Basic credentials")));
+            Future.failedFuture(new DxUnauthorizedException(AuthConstants.INVALID_BASIC_CREDENTIALS)));
         return;
       }
       appCredentialsResolver
@@ -88,34 +97,35 @@ public final class AuthenticationHandler implements AuthenticationHandlerInterna
     }
 
     if (hasBearer) {
-      String token = authHeader.substring(7).trim();
-      String did = ctx.request().getHeader("did");
+      String token = authHeader.substring(HttpConstants.BEARER_PREFIX.length()).trim();
+      String did   = ctx.request().getHeader(AuthConstants.HEADER_DID);
       jwtResolver
           .resolve(token)
           .onSuccess(
               user -> {
-                if (did != null && !did.isBlank()) handler.handle(Future.succeededFuture(user));
+                if (did != null && !did.isBlank()) {
+                  user.principal().put(AuthConstants.DELEGATOR_HEADER_KEY, did);
+                }
+                handler.handle(Future.succeededFuture(user));
               })
           .onFailure(err -> handler.handle(Future.failedFuture(err)));
       return;
     }
 
-    handler.handle(Future.failedFuture(new DxUnauthorizedException("Missing credentials")));
+    handler.handle(Future.failedFuture(new DxUnauthorizedException(AuthConstants.MISSING_CREDENTIALS)));
   }
 
   @Override
   public void postAuthentication(RoutingContext ctx) {
-    // App credentials: stash appId from principal to ctx routing data
-    String appId = ctx.user().principal().getString("app_id");
+    String appId = ctx.user().principal().getString(KeycloakConstants.CLAIM_APP_ID);
     if (appId != null) {
       ctx.put(AppIdAuthHandler.APP_ID_KEY, appId);
     }
 
-    // Delegation: JWT was validated, now resolve delegated identity
-    String delegatorSub = ctx.user().principal().getString("_delegatorHeader");
+    String delegatorSub = ctx.user().principal().getString(AuthConstants.DELEGATOR_HEADER_KEY);
     if (delegatorSub != null) {
-      ctx.user().principal().remove("_delegatorHeader");
-      String delegateeSub = ctx.user().principal().getString("sub");
+      ctx.user().principal().remove(AuthConstants.DELEGATOR_HEADER_KEY);
+      String delegateeSub = ctx.user().principal().getString(KeycloakConstants.CLAIM_SUB);
       delegationResolver
           .resolve(delegatorSub, delegateeSub)
           .map(AuthenticationHandler::toVertxUser)
@@ -135,22 +145,22 @@ public final class AuthenticationHandler implements AuthenticationHandlerInterna
   static User toVertxUser(DxUser user) {
     JsonObject principal =
         new JsonObject()
-            .put("sub", user.sub() != null ? user.sub().toString() : null)
-            .put("organisation_id", user.organisationId())
-            .put("kyc_verified", user.kycVerified())
-            .put("email_verified", user.emailVerified())
+            .put(KeycloakConstants.CLAIM_SUB, user.sub() != null ? user.sub().toString() : null)
+            .put(KeycloakConstants.ORGANISATION_ID, user.organisationId())
+            .put(KeycloakConstants.KYC_VERIFIED, user.kycVerified())
+            .put(KeycloakConstants.CLAIM_EMAIL_VERIFIED, user.emailVerified())
             .put(
-                "realm_access",
+                KeycloakConstants.CLAIM_REALM_ACCESS,
                 new JsonObject()
                     .put(
-                        "roles",
+                        KeycloakConstants.CLAIM_ROLES,
                         user.roles() != null ? new JsonArray(user.roles()) : new JsonArray()))
-            .put("scopes", user.scopes() != null ? user.scopes() : new JsonArray());
+            .put(KeycloakConstants.CLAIM_SCOPES, user.scopes() != null ? user.scopes() : new JsonArray());
     if (user.delegateeId() != null) {
-      principal.put("delegatee_sub", user.delegateeId());
+      principal.put(KeycloakConstants.CLAIM_DELEGATEE_SUB, user.delegateeId());
     }
     if (user.appId() != null) {
-      principal.put("app_id", user.appId());
+      principal.put(KeycloakConstants.CLAIM_APP_ID, user.appId());
     }
     return User.create(principal);
   }
@@ -160,7 +170,8 @@ public final class AuthenticationHandler implements AuthenticationHandlerInterna
     try {
       String decoded =
           new String(
-              Base64.getDecoder().decode(authHeader.substring(6).trim()), StandardCharsets.UTF_8);
+              Base64.getDecoder().decode(authHeader.substring(HttpConstants.BASIC_PREFIX.length()).trim()),
+              StandardCharsets.UTF_8);
       int i = decoded.indexOf(':');
       if (i <= 0 || i == decoded.length() - 1) return null;
       return new String[] {decoded.substring(0, i), decoded.substring(i + 1)};

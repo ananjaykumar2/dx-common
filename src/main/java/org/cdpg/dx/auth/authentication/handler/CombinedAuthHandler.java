@@ -8,6 +8,7 @@ import io.vertx.ext.web.handler.impl.AuthenticationHandlerInternal;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.appid.handler.AppIdAuthHandler;
+import org.cdpg.dx.common.config.HttpConstants;
 
 /**
  * Single auth handler that dispatches based on the Authorization header scheme:
@@ -46,9 +47,9 @@ public class CombinedAuthHandler implements AuthenticationHandlerInternal {
 
   @Override
   public void authenticate(RoutingContext ctx, Handler<AsyncResult<User>> handler) {
-    String authHeader = ctx.request().getHeader("Authorization");
+    String authHeader = ctx.request().getHeader(HttpConstants.HEADER_AUTHORIZATION);
     LOGGER.debug("CombinedAuthHandler: authHeader={}", authHeader);
-    if (authHeader != null && authHeader.startsWith("Basic ")) {
+    if (authHeader != null && authHeader.startsWith(HttpConstants.BASIC_PREFIX)) {
       appIdHandler.authenticate(ctx, handler);
     } else {
       jwtHandler.authenticate(ctx, handler);

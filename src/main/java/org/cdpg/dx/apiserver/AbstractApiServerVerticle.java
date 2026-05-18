@@ -1,6 +1,8 @@
 package org.cdpg.dx.apiserver;
 
 import static org.cdpg.dx.common.config.CorsUtil.allowedOrigins;
+import static org.cdpg.dx.common.config.HttpConstants.APPLICATION_JSON;
+import static org.cdpg.dx.common.validations.util.Constants.CONTENT_TYPE;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,6 +45,7 @@ import org.cdpg.dx.auth.authentication.handler.OptionalMultiIssuerJwtAuthHandler
 import org.cdpg.dx.common.FailureHandler;
 import org.cdpg.dx.common.HttpStatusCode;
 import org.cdpg.dx.common.URNGenerator;
+import org.cdpg.dx.common.config.HttpConstants;
 import org.cdpg.dx.common.util.BlockingExecutionUtil;
 
 /**
@@ -77,12 +80,9 @@ import org.cdpg.dx.common.util.BlockingExecutionUtil;
  * }</pre>
  */
 public abstract class AbstractApiServerVerticle extends AbstractVerticle {
-
-  protected static final String APPLICATION_JSON = "application/json";
-  protected static final String CONTENT_TYPE = "Content-Type";
+  private static final Logger LOGGER = LogManager.getLogger(AbstractApiServerVerticle.class);
   protected static final String ROUTE_STATIC_SPEC = "/apis/spec";
   protected static final String ROUTE_DOC = "/apis";
-  private static final Logger LOGGER = LogManager.getLogger(AbstractApiServerVerticle.class);
   protected URNGenerator urnGenerator;
   private HttpServer server;
   private Router router;
@@ -135,6 +135,7 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
   protected Supplier<Future<JsonObject>> getJwksInternalProvider() {
     return null;
   }
+
   /**
    * Body size limit for requests. Default: {@link BodyHandler#DEFAULT_BODY_LIMIT}. Use -1 for
    * unlimited.
@@ -212,8 +213,8 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
   }
 
   /**
-   * Optional auth dispatcher. Subclasses return a configured
-   * {@link org.cdpg.dx.auth.authentication.handler.AuthenticationHandler} to enable the diagnostic route
+   * Optional auth dispatcher. Subclasses return a configured {@link
+   * org.cdpg.dx.auth.authentication.handler.AuthenticationHandler} to enable the diagnostic route
    * Default: {@code null} — the diagnostic route is not mounted.
    */
   protected org.cdpg.dx.auth.authentication.handler.AuthenticationHandler getAuthV2Handler() {
@@ -281,20 +282,20 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                     new OptionalMultiIssuerJwtAuthHandler(jwksResolver);
 
                 AppIdAuthHandler appIdAuthHandler = getAppIdAuthHandler();
-                  org.cdpg.dx.auth.authentication.handler.AuthenticationHandler authV2 = getAuthV2Handler();
+                org.cdpg.dx.auth.authentication.handler.AuthenticationHandler authV2 =
+                    getAuthV2Handler();
 
-                  AuthenticationHandler mainAuthHandler;
-                  if (authV2 != null) {
-                      mainAuthHandler = authV2;
-                      LOGGER.debug(
-                              "Using AuthenticationHandler for authorization scheme");
-                  } else if (appIdAuthHandler != null) {
-                      mainAuthHandler = new CombinedAuthHandler(appIdAuthHandler, jwtHandler);
-                      LOGGER.debug(
-                              "AppId auth enabled — using CombinedAuthHandler for authorization + appIdAuth");
-                  } else {
-                      mainAuthHandler = createMainAuthHandler(jwksResolver);
-                  }
+                AuthenticationHandler mainAuthHandler;
+                if (authV2 != null) {
+                  mainAuthHandler = authV2;
+                  LOGGER.debug("Using AuthenticationHandler for authorization scheme");
+                } else if (appIdAuthHandler != null) {
+                  mainAuthHandler = new CombinedAuthHandler(appIdAuthHandler, jwtHandler);
+                  LOGGER.debug(
+                      "AppId auth enabled — using CombinedAuthHandler for authorization + appIdAuth");
+                } else {
+                  mainAuthHandler = createMainAuthHandler(jwksResolver);
+                }
 
                 LOGGER.debug("Adding platform handlers...");
                 long timeout = config().getLong("timeout", getDefaultTimeoutMs());
