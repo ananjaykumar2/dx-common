@@ -1,6 +1,8 @@
 package org.cdpg.dx.apiserver;
 
 import static org.cdpg.dx.common.config.CorsUtil.allowedOrigins;
+import static org.cdpg.dx.common.config.HttpConstants.APPLICATION_JSON;
+import static org.cdpg.dx.common.validations.util.Constants.CONTENT_TYPE;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,11 +42,10 @@ import org.cdpg.dx.auth.authentication.client.JwksResolver;
 import org.cdpg.dx.auth.authentication.handler.CombinedAuthHandler;
 import org.cdpg.dx.auth.authentication.handler.MultiIssuerJwtAuthHandler;
 import org.cdpg.dx.auth.authentication.handler.OptionalMultiIssuerJwtAuthHandler;
-import org.cdpg.dx.auth.v2.handler.AuthenticationHandlerV2;
-import org.cdpg.dx.auth.v2.model.DxPrincipal;
 import org.cdpg.dx.common.FailureHandler;
 import org.cdpg.dx.common.HttpStatusCode;
 import org.cdpg.dx.common.URNGenerator;
+import org.cdpg.dx.common.config.HttpConstants;
 import org.cdpg.dx.common.util.BlockingExecutionUtil;
 
 /**
@@ -79,12 +80,9 @@ import org.cdpg.dx.common.util.BlockingExecutionUtil;
  * }</pre>
  */
 public abstract class AbstractApiServerVerticle extends AbstractVerticle {
-
-  protected static final String APPLICATION_JSON = "application/json";
-  protected static final String CONTENT_TYPE = "Content-Type";
+  private static final Logger LOGGER = LogManager.getLogger(AbstractApiServerVerticle.class);
   protected static final String ROUTE_STATIC_SPEC = "/apis/spec";
   protected static final String ROUTE_DOC = "/apis";
-  private static final Logger LOGGER = LogManager.getLogger(AbstractApiServerVerticle.class);
   protected URNGenerator urnGenerator;
   private HttpServer server;
   private Router router;
@@ -137,6 +135,7 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
   protected Supplier<Future<JsonObject>> getJwksInternalProvider() {
     return null;
   }
+
   /**
    * Body size limit for requests. Default: {@link BodyHandler#DEFAULT_BODY_LIMIT}. Use -1 for
    * unlimited.
@@ -214,18 +213,11 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
   }
 
   /**
-   * Optional v2 auth dispatcher. Subclasses return a configured {@link AuthenticationHandlerV2} to
-   * enable the diagnostic route {@code GET /auth/v2/whoami}, which echoes the resolved {@link
-   * DxPrincipal} as JSON. Default: {@code null} — the diagnostic route is not mounted.
-   *
-   * <p>The base chains {@link OptionalMultiIssuerJwtAuthHandler} before this handler so Bearer
-   * tokens are validated when present, without failing non-Bearer requests. Returns 401/403/400 via
-   * the standard {@link FailureHandler}.
-   *
-   * <p>Use this to test the v2 stack end-to-end against a running server before migrating
-   * individual endpoints.
+   * Optional auth dispatcher. Subclasses return a configured {@link
+   * org.cdpg.dx.auth.authentication.handler.AuthenticationHandler} to enable the diagnostic route
+   * Default: {@code null} — the diagnostic route is not mounted.
    */
-  protected AuthenticationHandlerV2 getAuthV2Handler() {
+  protected org.cdpg.dx.auth.authentication.handler.AuthenticationHandler getAuthV2Handler() {
     return null;
   }
 
@@ -290,20 +282,20 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                     new OptionalMultiIssuerJwtAuthHandler(jwksResolver);
 
                 AppIdAuthHandler appIdAuthHandler = getAppIdAuthHandler();
-                  AuthenticationHandlerV2 authV2 = getAuthV2Handler();
+                org.cdpg.dx.auth.authentication.handler.AuthenticationHandler authV2 =
+                    getAuthV2Handler();
 
-                  AuthenticationHandler mainAuthHandler;
-                  if (authV2 != null) {
-                      mainAuthHandler = authV2;
-                      LOGGER.debug(
-                              "v2 auth enabled — using AuthenticationHandlerV2 for authorization scheme");
-                  } else if (appIdAuthHandler != null) {
-                      mainAuthHandler = new CombinedAuthHandler(appIdAuthHandler, jwtHandler);
-                      LOGGER.debug(
-                              "AppId auth enabled — using CombinedAuthHandler for authorization + appIdAuth");
-                  } else {
-                      mainAuthHandler = createMainAuthHandler(jwksResolver);
-                  }
+                AuthenticationHandler mainAuthHandler;
+                if (authV2 != null) {
+                  mainAuthHandler = authV2;
+                  LOGGER.debug("Using AuthenticationHandler for authorization scheme");
+                } else if (appIdAuthHandler != null) {
+                  mainAuthHandler = new CombinedAuthHandler(appIdAuthHandler, jwtHandler);
+                  LOGGER.debug(
+                      "AppId auth enabled — using CombinedAuthHandler for authorization + appIdAuth");
+                } else {
+                  mainAuthHandler = createMainAuthHandler(jwksResolver);
+                }
 
                 LOGGER.debug("Adding platform handlers...");
                 long timeout = config().getLong("timeout", getDefaultTimeoutMs());
@@ -321,7 +313,7 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                 routerBuilder.securityHandler("authorization", mainAuthHandler);
                 routerBuilder.securityHandler("optionalAuth", optionalAuthHandler);
                 if (authV2 != null) {
-                  // AuthenticationHandlerV2 handles both JWT and Basic (AppId) auth
+                  // AuthenticationHandler handles both JWT and Basic (AppId) auth
                   routerBuilder.securityHandler("appIdAuth", authV2);
                 } else if (appIdAuthHandler != null) {
                   routerBuilder.securityHandler("appIdAuth", mainAuthHandler);

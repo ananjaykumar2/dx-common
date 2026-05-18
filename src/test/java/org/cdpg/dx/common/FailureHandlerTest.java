@@ -89,7 +89,7 @@ class FailureHandlerTest {
       when(ctx.failure()).thenReturn(new DxBadRequestException("test"));
       handler.handle(ctx);
       verify(response).putHeader("Access-Control-Allow-Origin", "*");
-      verify(response).putHeader("content-type", "application/json");
+      verify(response).putHeader("Content-Type", "application/json");
     }
 
     @Test

@@ -12,10 +12,13 @@ import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.authentication.client.JwksResolver;
 import org.cdpg.dx.auth.authentication.util.BearerTokenExtractor;
 import org.cdpg.dx.auth.authentication.util.JwtTokenUtil;
+import org.cdpg.dx.auth.common.AuthConstants;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 
 public class MultiIssuerJwtAuthHandler implements AuthenticationHandlerInternal {
+
   private static final Logger LOGGER = LogManager.getLogger(MultiIssuerJwtAuthHandler.class);
+
 
   private final JwksResolver jwksResolver;
 
@@ -40,7 +43,7 @@ public class MultiIssuerJwtAuthHandler implements AuthenticationHandlerInternal 
     String token = BearerTokenExtractor.extract(ctx);
     if (token == null || token.isBlank()) {
       LOGGER.warn("Missing or invalid Authorization header");
-      handler.handle(Future.failedFuture(new DxUnauthorizedException("Missing Bearer token")));
+      handler.handle(Future.failedFuture(new DxUnauthorizedException(AuthConstants.MISSING_BEARER_TOKEN)));
       return;
     }
 
@@ -51,7 +54,7 @@ public class MultiIssuerJwtAuthHandler implements AuthenticationHandlerInternal 
       kid = JwtTokenUtil.extractKid(token);
     } catch (Exception e) {
       LOGGER.error("Failed to extract token claims: {}", e.getMessage());
-      handler.handle(Future.failedFuture(new DxUnauthorizedException("Invalid token format")));
+      handler.handle(Future.failedFuture(new DxUnauthorizedException(AuthConstants.INVALID_TOKEN_FORMAT)));
       return;
     }
 
@@ -64,7 +67,8 @@ public class MultiIssuerJwtAuthHandler implements AuthenticationHandlerInternal 
         })
         .onFailure(err -> {
           LOGGER.error("Authentication failed for issuer {}, kid {}: {}", issuer, kid, err.getMessage());
-          handler.handle(Future.failedFuture(new DxUnauthorizedException("Unauthorized: %s".formatted(err.getMessage()))));
+          handler.handle(Future.failedFuture(
+              new DxUnauthorizedException(AuthConstants.UNAUTHORIZED.formatted(err.getMessage()))));
         });
   }
 }
