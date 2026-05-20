@@ -14,6 +14,8 @@ import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.appid.v1.AppIdVerificationServiceGrpc;
 import org.cdpg.dx.auth.appid.v1.CheckItemAccessRequest;
 import org.cdpg.dx.auth.appid.v1.CheckItemAccessResponse;
+import org.cdpg.dx.auth.appid.v1.ResolveDelegationRequest;
+import org.cdpg.dx.auth.appid.v1.ResolveDelegationResponse;
 import org.cdpg.dx.auth.appid.v1.VerifyAppIdRequest;
 import org.cdpg.dx.auth.appid.v1.VerifyAppIdResponse;
 
@@ -50,6 +52,36 @@ public class AppIdVerificationClient {
             .keepAliveTime(30, TimeUnit.SECONDS)
             .build();
     this.asyncStub = AppIdVerificationServiceGrpc.newStub(this.channel);
+  }
+
+  public Future<ResolveDelegationResponse> resolveDelegation(
+      String delegatorSub, String delegateeSub) {
+    Promise<ResolveDelegationResponse> promise = Promise.promise();
+    asyncStub.resolveDelegation(
+        ResolveDelegationRequest.newBuilder()
+            .setDelegatorSub(delegatorSub)
+            .setDelegateeSub(delegateeSub)
+            .build(),
+        new StreamObserver<>() {
+          @Override
+          public void onNext(ResolveDelegationResponse response) {
+            promise.complete(response);
+          }
+
+          @Override
+          public void onError(Throwable t) {
+            LOGGER.error(
+                "gRPC ResolveDelegation failed delegatorSub={} delegateeSub={}: {}",
+                delegatorSub,
+                delegateeSub,
+                t.getMessage());
+            promise.fail(t);
+          }
+
+          @Override
+          public void onCompleted() {}
+        });
+    return promise.future();
   }
 
   /** Initiates a graceful shutdown of the underlying channel. Call during application teardown. */

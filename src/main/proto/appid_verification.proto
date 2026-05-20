@@ -44,8 +44,34 @@ message CheckItemAccessResponse {
   string policies_json        = 6;  // JSON-encoded policies array
 }
 
+// ── ResolveDelegation ──────────────────────────────────────────────────────
+message ResolveDelegationRequest {
+  string delegator_sub = 1;
+  string delegatee_sub = 2;
+}
+
+message ResolveDelegationResponse {
+  bool             success          = 1;
+  string           error_code       = 2;  // NO_ACTIVE_DELEGATION | EXPIRED | DELEGATOR_INACTIVE | INTERNAL_ERROR
+  string           sub              = 3;  // delegator's sub (UUID)
+  string           organisation_id  = 4;
+  string           organisation_name = 5;
+  repeated string  roles            = 6;
+  repeated string  scopes           = 7;
+  bool             email_verified   = 8;
+  bool             kyc_verified     = 9;
+  string           name             = 10;
+  string           preferred_username = 11;
+  string           given_name       = 12;
+  string           family_name      = 13;
+  string           email            = 14;
+  bool             account_enabled  = 15;
+  string           delegatee_sub    = 16;  // echoed back for audit
+}
+
 // ── Service ────────────────────────────────────────────────────────────────
 service AppIdVerificationService {
-  rpc VerifyAppId      (VerifyAppIdRequest)      returns (VerifyAppIdResponse);
-  rpc CheckItemAccess  (CheckItemAccessRequest)  returns (CheckItemAccessResponse);
+  rpc VerifyAppId          (VerifyAppIdRequest)          returns (VerifyAppIdResponse);
+  rpc CheckItemAccess      (CheckItemAccessRequest)      returns (CheckItemAccessResponse);
+  rpc ResolveDelegation    (ResolveDelegationRequest)    returns (ResolveDelegationResponse);
 }
