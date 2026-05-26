@@ -1,6 +1,22 @@
 package org.cdpg.dx.database.elastic.service;
 
-import static org.cdpg.dx.database.elastic.util.Constants.*;
+import static org.cdpg.dx.database.elastic.util.Constants.AGGREGATIONS;
+import static org.cdpg.dx.database.elastic.util.Constants.AGGREGATION_LIST;
+import static org.cdpg.dx.database.elastic.util.Constants.AGGREGATION_ONLY;
+import static org.cdpg.dx.database.elastic.util.Constants.BUCKETS;
+import static org.cdpg.dx.database.elastic.util.Constants.COUNT_AGGREGATION_ONLY;
+import static org.cdpg.dx.database.elastic.util.Constants.DOC_COUNT;
+import static org.cdpg.dx.database.elastic.util.Constants.DOC_IDS_ONLY;
+import static org.cdpg.dx.database.elastic.util.Constants.ID;
+import static org.cdpg.dx.database.elastic.util.Constants.KEY;
+import static org.cdpg.dx.database.elastic.util.Constants.RESULTS;
+import static org.cdpg.dx.database.elastic.util.Constants.SOURCE;
+import static org.cdpg.dx.database.elastic.util.Constants.SOURCE_AND_ID;
+import static org.cdpg.dx.database.elastic.util.Constants.SOURCE_AND_ID_GEOQUERY;
+import static org.cdpg.dx.database.elastic.util.Constants.SOURCE_ONLY;
+import static org.cdpg.dx.database.elastic.util.Constants.STRING_SIZE;
+import static org.cdpg.dx.database.elastic.util.Constants.SUMMARY_KEY;
+import static org.cdpg.dx.database.elastic.util.Constants.WORD_VECTOR_KEY;
 
 import co.elastic.clients.elasticsearch.ElasticsearchAsyncClient;
 import co.elastic.clients.elasticsearch._types.Refresh;
@@ -9,7 +25,16 @@ import co.elastic.clients.elasticsearch._types.Script;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
-import co.elastic.clients.elasticsearch.core.*;
+import co.elastic.clients.elasticsearch.core.BulkRequest;
+import co.elastic.clients.elasticsearch.core.CountRequest;
+import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
+import co.elastic.clients.elasticsearch.core.DeleteRequest;
+import co.elastic.clients.elasticsearch.core.ExistsRequest;
+import co.elastic.clients.elasticsearch.core.IndexRequest;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.UpdateByQueryRequest;
+import co.elastic.clients.elasticsearch.core.UpdateRequest;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
@@ -26,7 +51,11 @@ import jakarta.json.stream.JsonGenerator;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -316,6 +345,16 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         .compose(v -> validateQueryModel(queryModel))
         .compose(v -> executeExistenceCheck(index, id))
         .compose(v -> executeUpdate(index, id, queryModel));
+  }
+
+  @Override
+  public Future<Void> patchDocument(String index, String id, QueryModel queryModel) {
+    LOGGER.debug("Update document with index: {}, id: {}, queryModel: {}", index, id, queryModel);
+    return validateIndex(index)
+        .compose(v -> validateId(id))
+        .compose(v -> validateQueryModel(queryModel))
+        .compose(v -> executeExistenceCheck(index, id))
+        .compose(v -> executePatch(index, id, queryModel));
   }
 
   @Override
@@ -674,6 +713,32 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
 
   private Future<Void> executeUpdate(String index, String id, QueryModel model) {
     Promise<Void> promise = Promise.promise();
+
+    JsonObject doc = model.extractDocumentFromQueryModel();
+
+    IndexRequest<JsonData> request =
+        new IndexRequest.Builder<JsonData>()
+            .index(index)
+            .id(id)
+            .document(JsonData.fromJson(doc.encode()))
+            .build();
+
+    asyncClient
+        .index(request)
+        .whenComplete(
+            (res, err) -> {
+              if (err != null) {
+                LOGGER.error("update failed {}", err.getMessage(), err);
+                promise.fail(new RuntimeException("Update error", err));
+              } else {
+                promise.complete();
+              }
+            });
+    return promise.future();
+  }
+
+  private Future<Void> executePatch(String index, String id, QueryModel model) {
+    Promise<Void> promise = Promise.promise();
     Script script = model.toElasticsearchScript();
 
     UpdateRequest.Builder<String, JsonData> builder =
@@ -693,7 +758,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         .whenComplete(
             (res, err) -> {
               if (err != null) {
-                LOGGER.error("update failed {}", err.getMessage(), err);
+                LOGGER.error("patch failed {}", err.getMessage(), err);
                 promise.fail(new RuntimeException("Update error", err));
               } else {
                 promise.complete();

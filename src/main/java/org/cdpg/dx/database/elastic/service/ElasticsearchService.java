@@ -40,6 +40,7 @@ public interface ElasticsearchService {
   Future<Void> deleteDocument(String index, String id);
 
   Future<Void> updateDocument(String index, String id, QueryModel queryModel);
+  Future<Void> patchDocument(String index, String id, QueryModel queryModel);
 
   Future<Void> updateDocumentsByQuery(QueryModel queryModel, String docIndex);
 
