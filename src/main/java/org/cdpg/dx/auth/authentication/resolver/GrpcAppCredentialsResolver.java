@@ -49,7 +49,13 @@ public final class GrpcAppCredentialsResolver implements AppCredentialsResolver 
         .recover(
             err -> {
               if (err instanceof DxUnauthorizedException) return Future.failedFuture(err);
-              LOGGER.error("gRPC VerifyAppId transport error appId={}: {}", appId, err.getMessage());
+              String msg = err.getMessage();
+              if (msg != null && msg.startsWith("Service misconfiguration")) {
+                LOGGER.error(
+                    "Cannot call VerifyAppId for appId={}: {} — fix config and restart", appId, msg);
+              } else {
+                LOGGER.error("gRPC VerifyAppId failed appId={}: {}", appId, msg);
+              }
               return Future.failedFuture(err);
             });
   }

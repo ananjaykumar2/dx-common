@@ -71,6 +71,18 @@ public class KeycloakServiceTokenProvider {
         .sendBuffer(Buffer.buffer(body))
         .onSuccess(
             response -> {
+              if (response.statusCode() == 401) {
+                LOGGER.error(
+                    "Keycloak rejected service credentials for clientId={}."
+                        + " Check grpcClientId/grpcClientSecret in config."
+                        + " Keycloak error: {}",
+                    clientId,
+                    response.bodyAsString());
+                promise.fail(
+                    "Service misconfiguration: Keycloak rejected credentials for clientId="
+                        + clientId);
+                return;
+              }
               if (response.statusCode() != 200) {
                 LOGGER.error(
                     "Keycloak token fetch failed: status={} body={}",
