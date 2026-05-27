@@ -75,6 +75,7 @@ public class AppIdRevocationConsumer {
               LOGGER.info("Revoking cache for appId={}", appId);
               appIdCacheService.invalidate(appId);
               itemAccessCacheService.invalidate(appId);
+              AppIdCacheHolder.invalidateCredentials(appId);
             } catch (Exception e) {
               LOGGER.error("Failed to process revocation message: {}", e.getMessage());
             }

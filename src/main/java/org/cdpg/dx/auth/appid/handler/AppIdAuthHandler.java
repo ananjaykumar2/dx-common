@@ -15,6 +15,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.appid.cache.AppIdCacheService;
 import org.cdpg.dx.auth.appid.client.AppIdVerificationClient;
+import org.cdpg.dx.auth.appid.client.KeycloakServiceTokenProvider;
 import org.cdpg.dx.auth.appid.model.AppIdPrincipal;
 import org.cdpg.dx.auth.common.AuthConstants;
 import org.cdpg.dx.auth.model.DxRole;
@@ -35,11 +36,15 @@ public class AppIdAuthHandler implements AuthenticationHandlerInternal {
 
   private final AppIdCacheService cacheService;
   private final AppIdVerificationClient verificationClient;
+  private final KeycloakServiceTokenProvider tokenProvider;
 
   public AppIdAuthHandler(
-      AppIdCacheService cacheService, AppIdVerificationClient verificationClient) {
+      AppIdCacheService cacheService,
+      AppIdVerificationClient verificationClient,
+      KeycloakServiceTokenProvider tokenProvider) {
     this.cacheService = cacheService;
     this.verificationClient = verificationClient;
+    this.tokenProvider = tokenProvider;
   }
 
   @Override
@@ -115,8 +120,9 @@ public class AppIdAuthHandler implements AuthenticationHandlerInternal {
 
   private void verifyWithControlplane(
       String appId, String appSecret, Handler<AsyncResult<User>> handler) {
-    verificationClient
-        .verify(appId, appSecret)
+    tokenProvider
+        .getServiceToken()
+        .compose(token -> verificationClient.verify(appId, appSecret, token))
         .onSuccess(
             response -> {
               if (!response.getSuccess()) {
@@ -139,7 +145,13 @@ public class AppIdAuthHandler implements AuthenticationHandlerInternal {
             })
         .onFailure(
             err -> {
-              LOGGER.error("gRPC verification error for appId={}: {}", appId, err.getMessage());
+              String msg = err.getMessage();
+              if (msg != null && msg.startsWith("Service misconfiguration")) {
+                LOGGER.error(
+                    "Cannot verify appId={}: {} — fix config and restart", appId, msg);
+              } else {
+                LOGGER.error("gRPC VerifyAppId failed for appId={}: {}", appId, msg);
+              }
               handler.handle(
                   Future.failedFuture(
                       new DxUnauthorizedException(AuthConstants.AUTH_SERVICE_UNAVAILABLE)));
