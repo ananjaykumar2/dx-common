@@ -1,10 +1,13 @@
 package org.cdpg.dx.auth.authentication.resolver;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.appid.client.AppIdVerificationClient;
@@ -22,18 +25,32 @@ import org.cdpg.dx.common.model.DxUser;
 public final class GrpcDelegationResolver implements DelegationResolver {
 
   private static final Logger LOGGER = LogManager.getLogger(GrpcDelegationResolver.class);
+  private static final int CACHE_MAX_SIZE = 1000;
+  private static final int CACHE_TTL_MINUTES = 2;
 
   private final AppIdVerificationClient client;
   private final KeycloakServiceTokenProvider tokenProvider;
+  private final Cache<String, DxUser> delegationCache;
 
   public GrpcDelegationResolver(
       AppIdVerificationClient client, KeycloakServiceTokenProvider tokenProvider) {
     this.client = Objects.requireNonNull(client, "client");
     this.tokenProvider = Objects.requireNonNull(tokenProvider, "tokenProvider");
+    this.delegationCache = CacheBuilder.newBuilder()
+        .maximumSize(CACHE_MAX_SIZE)
+        .expireAfterWrite(CACHE_TTL_MINUTES, TimeUnit.MINUTES)
+        .build();
   }
 
   @Override
   public Future<DxUser> resolve(String delegatorSub, String delegateeSub) {
+    String cacheKey = delegatorSub + ":" + delegateeSub;
+    DxUser cached = delegationCache.getIfPresent(cacheKey);
+    if (cached != null) {
+      LOGGER.debug("Delegation cache hit delegatorSub={} delegateeSub={}", delegatorSub, delegateeSub);
+      return Future.succeededFuture(cached);
+    }
+
     return tokenProvider
         .getServiceToken()
         .compose(token -> client.resolveDelegation(delegatorSub, delegateeSub, token))
@@ -45,14 +62,21 @@ public final class GrpcDelegationResolver implements DelegationResolver {
                     delegatorSub, delegateeSub, response.getErrorCode());
                 return Future.failedFuture(new DxForbiddenException("No active delegation"));
               }
-              return Future.succeededFuture(toDxUser(response));
+              DxUser user = toDxUser(response);
+              delegationCache.put(cacheKey, user);
+              return Future.succeededFuture(user);
             })
         .recover(
             err -> {
               if (err instanceof DxForbiddenException) return Future.failedFuture(err);
-              LOGGER.error(
-                  "gRPC ResolveDelegation transport error delegatorSub={}: {}",
-                  delegatorSub, err.getMessage());
+              String msg = err.getMessage();
+              if (msg != null && msg.startsWith("Service misconfiguration")) {
+                LOGGER.error(
+                    "Cannot call ResolveDelegation for delegatorSub={}: {} — fix config and restart",
+                    delegatorSub, msg);
+              } else {
+                LOGGER.error("gRPC ResolveDelegation failed delegatorSub={}: {}", delegatorSub, msg);
+              }
               return Future.failedFuture(err);
             });
   }

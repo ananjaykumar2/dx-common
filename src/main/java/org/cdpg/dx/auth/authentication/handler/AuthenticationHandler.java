@@ -30,9 +30,11 @@ import org.cdpg.dx.keycloak.config.KeycloakConstants;
  *
  * <ol>
  *   <li>Basic + Bearer → 400 (ambiguous)
- *   <li>Basic/app headers → {@link AppCredentialsResolver#resolve} → {@link #toVertxUser}
- *   <li>Bearer + {@code did} → {@link JwtResolver#resolve} → {@link DelegationResolver#resolve} →
- *       {@link #toVertxUser}
+ *   <li>Basic + {@code did} → {@link AppCredentialsResolver#resolve} (VerifyAppId → app owner sub)
+ *       → {@link DelegationResolver#resolve}(did, appOwnerSub) → {@link #toVertxUser} (delegator)
+ *   <li>Basic alone → {@link AppCredentialsResolver#resolve} → {@link #toVertxUser}
+ *   <li>Bearer + {@code did} → {@link JwtResolver#resolve} (JWT sub = delegatee)
+ *       → {@link DelegationResolver#resolve}(did, delegateeSub) → {@link #toVertxUser} (delegator)
  *   <li>Bearer alone → {@link JwtResolver#resolve}
  *   <li>Otherwise → 401
  * </ol>
@@ -88,9 +90,16 @@ public final class AuthenticationHandler implements AuthenticationHandlerInterna
             Future.failedFuture(new DxUnauthorizedException(AuthConstants.INVALID_BASIC_CREDENTIALS)));
         return;
       }
+      String did = ctx.request().getHeader(AuthConstants.HEADER_DID);
       appCredentialsResolver
           .resolve(creds[0], creds[1])
-          .map(AuthenticationHandler::toVertxUser)
+          .map(dxUser -> {
+            User user = AuthenticationHandler.toVertxUser(dxUser);
+            if (did != null && !did.isBlank()) {
+              user.principal().put(AuthConstants.DELEGATOR_HEADER_KEY, did);
+            }
+            return user;
+          })
           .onSuccess(user -> handler.handle(Future.succeededFuture(user)))
           .onFailure(err -> handler.handle(Future.failedFuture(err)));
       return;

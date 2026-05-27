@@ -27,8 +27,16 @@ public class AppIdItemAccessCacheService {
     return Optional.ofNullable(cache.getIfPresent(key(appId, entityId)));
   }
 
+  public Optional<AppIdItemAccessResult> get(String appId, String entityId, String did) {
+    return Optional.ofNullable(cache.getIfPresent(key(appId, entityId, did)));
+  }
+
   public void put(String appId, String entityId, AppIdItemAccessResult result) {
     cache.put(key(appId, entityId), result);
+  }
+
+  public void put(String appId, String entityId, String did, AppIdItemAccessResult result) {
+    cache.put(key(appId, entityId, did), result);
   }
 
   public void invalidate(String appId) {
@@ -38,5 +46,9 @@ public class AppIdItemAccessCacheService {
 
   private String key(String appId, String entityId) {
     return appId + ":" + entityId;
+  }
+
+  private String key(String appId, String entityId, String did) {
+    return appId + ":" + entityId + ":" + did;
   }
 }

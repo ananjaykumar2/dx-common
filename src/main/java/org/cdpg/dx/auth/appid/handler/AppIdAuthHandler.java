@@ -145,7 +145,13 @@ public class AppIdAuthHandler implements AuthenticationHandlerInternal {
             })
         .onFailure(
             err -> {
-              LOGGER.error("gRPC verification error for appId={}: {}", appId, err.getMessage());
+              String msg = err.getMessage();
+              if (msg != null && msg.startsWith("Service misconfiguration")) {
+                LOGGER.error(
+                    "Cannot verify appId={}: {} — fix config and restart", appId, msg);
+              } else {
+                LOGGER.error("gRPC VerifyAppId failed for appId={}: {}", appId, msg);
+              }
               handler.handle(
                   Future.failedFuture(
                       new DxUnauthorizedException(AuthConstants.AUTH_SERVICE_UNAVAILABLE)));

@@ -1,10 +1,13 @@
 package org.cdpg.dx.auth.authentication.resolver;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -23,18 +26,35 @@ import org.cdpg.dx.common.model.DxUser;
 public final class GrpcAppCredentialsResolver implements AppCredentialsResolver {
 
   private static final Logger LOGGER = LogManager.getLogger(GrpcAppCredentialsResolver.class);
+  private static final int CACHE_MAX_SIZE = 1000;
+  private static final int CACHE_TTL_MINUTES = 5;
 
   private final AppIdVerificationClient client;
   private final KeycloakServiceTokenProvider tokenProvider;
+  private final Cache<String, DxUser> appIdCache;
 
   public GrpcAppCredentialsResolver(
       AppIdVerificationClient client, KeycloakServiceTokenProvider tokenProvider) {
     this.client = Objects.requireNonNull(client, "client");
     this.tokenProvider = Objects.requireNonNull(tokenProvider, "tokenProvider");
+    this.appIdCache = CacheBuilder.newBuilder()
+        .maximumSize(CACHE_MAX_SIZE)
+        .expireAfterWrite(CACHE_TTL_MINUTES, TimeUnit.MINUTES)
+        .build();
+  }
+
+  public void invalidate(String appId) {
+    appIdCache.invalidate(appId);
   }
 
   @Override
   public Future<DxUser> resolve(String appId, String secret) {
+    DxUser cached = appIdCache.getIfPresent(appId);
+    if (cached != null) {
+      LOGGER.debug("AppId credentials cache hit appId={}", appId);
+      return Future.succeededFuture(cached);
+    }
+
     return tokenProvider
         .getServiceToken()
         .compose(token -> client.verify(appId, secret, token))
@@ -44,7 +64,9 @@ public final class GrpcAppCredentialsResolver implements AppCredentialsResolver 
                 LOGGER.debug("VerifyAppId rejected appId={}: {}", appId, response.getErrorCode());
                 return Future.failedFuture(new DxUnauthorizedException("Invalid app credentials"));
               }
-              return Future.succeededFuture(toDxUser(response));
+              DxUser user = toDxUser(response);
+              appIdCache.put(appId, user);
+              return Future.succeededFuture(user);
             })
         .recover(
             err -> {
