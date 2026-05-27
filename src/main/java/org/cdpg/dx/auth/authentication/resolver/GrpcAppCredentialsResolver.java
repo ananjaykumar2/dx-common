@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.appid.client.AppIdVerificationClient;
+import org.cdpg.dx.auth.appid.client.KeycloakServiceTokenProvider;
 import org.cdpg.dx.auth.appid.v1.AppIdPrincipalProto;
 import org.cdpg.dx.auth.appid.v1.VerifyAppIdResponse;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
@@ -24,15 +25,19 @@ public final class GrpcAppCredentialsResolver implements AppCredentialsResolver 
   private static final Logger LOGGER = LogManager.getLogger(GrpcAppCredentialsResolver.class);
 
   private final AppIdVerificationClient client;
+  private final KeycloakServiceTokenProvider tokenProvider;
 
-  public GrpcAppCredentialsResolver(AppIdVerificationClient client) {
+  public GrpcAppCredentialsResolver(
+      AppIdVerificationClient client, KeycloakServiceTokenProvider tokenProvider) {
     this.client = Objects.requireNonNull(client, "client");
+    this.tokenProvider = Objects.requireNonNull(tokenProvider, "tokenProvider");
   }
 
   @Override
   public Future<DxUser> resolve(String appId, String secret) {
-    return client
-        .verify(appId, secret)
+    return tokenProvider
+        .getServiceToken()
+        .compose(token -> client.verify(appId, secret, token))
         .compose(
             response -> {
               if (!response.getSuccess()) {

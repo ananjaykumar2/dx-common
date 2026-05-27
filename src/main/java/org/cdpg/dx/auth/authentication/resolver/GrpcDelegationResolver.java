@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.appid.client.AppIdVerificationClient;
+import org.cdpg.dx.auth.appid.client.KeycloakServiceTokenProvider;
 import org.cdpg.dx.auth.appid.v1.ResolveDelegationResponse;
 import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.model.DxUser;
@@ -23,15 +24,19 @@ public final class GrpcDelegationResolver implements DelegationResolver {
   private static final Logger LOGGER = LogManager.getLogger(GrpcDelegationResolver.class);
 
   private final AppIdVerificationClient client;
+  private final KeycloakServiceTokenProvider tokenProvider;
 
-  public GrpcDelegationResolver(AppIdVerificationClient client) {
+  public GrpcDelegationResolver(
+      AppIdVerificationClient client, KeycloakServiceTokenProvider tokenProvider) {
     this.client = Objects.requireNonNull(client, "client");
+    this.tokenProvider = Objects.requireNonNull(tokenProvider, "tokenProvider");
   }
 
   @Override
   public Future<DxUser> resolve(String delegatorSub, String delegateeSub) {
-    return client
-        .resolveDelegation(delegatorSub, delegateeSub)
+    return tokenProvider
+        .getServiceToken()
+        .compose(token -> client.resolveDelegation(delegatorSub, delegateeSub, token))
         .compose(
             response -> {
               if (!response.getSuccess()) {

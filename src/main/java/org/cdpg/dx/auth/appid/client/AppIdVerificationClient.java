@@ -90,6 +90,102 @@ public class AppIdVerificationClient {
   }
 
   /**
+   * Sends a VerifyAppId RPC to dx-controlplane authenticated with a service identity token. Use
+   * this overload when the caller has obtained a token via {@link KeycloakServiceTokenProvider}.
+   */
+  public Future<VerifyAppIdResponse> verify(String appId, String appSecret, String serviceToken) {
+    Promise<VerifyAppIdResponse> promise = Promise.promise();
+    asyncStub
+        .withCallCredentials(new BearerTokenCallCredentials(serviceToken))
+        .verifyAppId(
+            VerifyAppIdRequest.newBuilder().setAppId(appId).setAppSecret(appSecret).build(),
+            new StreamObserver<>() {
+              @Override
+              public void onNext(VerifyAppIdResponse response) {
+                promise.complete(response);
+              }
+
+              @Override
+              public void onError(Throwable t) {
+                LOGGER.error("gRPC VerifyAppId failed appId={}: {}", appId, t.getMessage());
+                promise.fail(t);
+              }
+
+              @Override
+              public void onCompleted() {}
+            });
+    return promise.future();
+  }
+
+  /** Sends a CheckItemAccess RPC authenticated with a service identity token. */
+  public Future<CheckItemAccessResponse> checkItemAccess(
+      String userId, String entityId, String did, String serviceToken) {
+    Promise<CheckItemAccessResponse> promise = Promise.promise();
+    asyncStub
+        .withCallCredentials(new BearerTokenCallCredentials(serviceToken))
+        .checkItemAccess(
+            CheckItemAccessRequest.newBuilder()
+                .setUserId(userId)
+                .setEntityId(entityId)
+                .setDid(did != null ? did : "")
+                .build(),
+            new StreamObserver<>() {
+              @Override
+              public void onNext(CheckItemAccessResponse response) {
+                promise.complete(response);
+              }
+
+              @Override
+              public void onError(Throwable t) {
+                LOGGER.error(
+                    "gRPC CheckItemAccess failed userId={} entityId={} did={}: {}",
+                    userId,
+                    entityId,
+                    did,
+                    t.getMessage());
+                promise.fail(t);
+              }
+
+              @Override
+              public void onCompleted() {}
+            });
+    return promise.future();
+  }
+
+  /** Sends a ResolveDelegation RPC authenticated with a service identity token. */
+  public Future<ResolveDelegationResponse> resolveDelegation(
+      String delegatorSub, String delegateeSub, String serviceToken) {
+    Promise<ResolveDelegationResponse> promise = Promise.promise();
+    asyncStub
+        .withCallCredentials(new BearerTokenCallCredentials(serviceToken))
+        .resolveDelegation(
+            ResolveDelegationRequest.newBuilder()
+                .setDelegatorSub(delegatorSub)
+                .setDelegateeSub(delegateeSub)
+                .build(),
+            new StreamObserver<>() {
+              @Override
+              public void onNext(ResolveDelegationResponse response) {
+                promise.complete(response);
+              }
+
+              @Override
+              public void onError(Throwable t) {
+                LOGGER.error(
+                    "gRPC ResolveDelegation failed delegatorSub={} delegateeSub={}: {}",
+                    delegatorSub,
+                    delegateeSub,
+                    t.getMessage());
+                promise.fail(t);
+              }
+
+              @Override
+              public void onCompleted() {}
+            });
+    return promise.future();
+  }
+
+  /**
    * Sends a VerifyAppId RPC to dx-controlplane.
    *
    * @param appId UUID string — safe to log
