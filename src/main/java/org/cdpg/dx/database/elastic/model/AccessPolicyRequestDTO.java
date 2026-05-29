@@ -1,5 +1,7 @@
 package org.cdpg.dx.database.elastic.model;
 
+import java.util.List;
+
 /**
  * DTO for access policy filter parameters.
  */
@@ -7,6 +9,7 @@ public class AccessPolicyRequestDTO {
 
   private String sub;
   private Boolean myAssetsReq;
+  private List<String> sharedItemIds;
 
   public AccessPolicyRequestDTO(String sub, Boolean myAssetsReq) {
     this.sub = sub;
@@ -27,5 +30,13 @@ public class AccessPolicyRequestDTO {
 
   public void setMyAssetsReq(Boolean myAssetsReq) {
     this.myAssetsReq = myAssetsReq;
+  }
+
+  public List<String> getSharedItemIds() {
+    return sharedItemIds;
+  }
+
+  public void setSharedItemIds(List<String> sharedItemIds) {
+    this.sharedItemIds = sharedItemIds;
   }
 }
