@@ -116,7 +116,14 @@ public abstract class AbstractBaseDAO<T extends BaseEntity<T>> implements BaseDA
   public Future<List<T>> getAllWithFilters(Map<String, Object> filters) {
     Condition condition =
         filters.entrySet().stream()
-            .map(e -> new Condition(e.getKey(), Condition.Operator.EQUALS, List.of(e.getValue())))
+            .map(
+                e -> {
+                  if (e.getValue() instanceof List<?> values) {
+                    return new Condition(e.getKey(), Condition.Operator.IN, (List<Object>) values);
+                  }
+                  return new Condition(
+                      e.getKey(), Condition.Operator.EQUALS, List.of(e.getValue()));
+                })
             .reduce((c1, c2) -> new Condition(List.of(c1, c2), Condition.LogicalOperator.AND))
             .orElse(null);
 
