@@ -141,6 +141,24 @@ public class ResponseBuilder {
     send(ctx, HttpStatusCode.PROCESSING, detail, null, null, urnGenerator);
   }
 
+  public static void sendForbiddenNoAccess(RoutingContext ctx, String detail, URNGenerator urnGenerator) {
+
+    send(ctx, HttpStatusCode.FORBIDDEN_NO_ACCESS, detail, null, null, urnGenerator);
+  }
+
+  public static <T> void sendForbiddenAccessPending(RoutingContext ctx, String detail, T result,
+      URNGenerator urnGenerator) {
+
+    send(ctx, HttpStatusCode.FORBIDDEN_ACCESS_PENDING, detail, result, null, urnGenerator);
+  }
+
+  public static <T> void sendForbiddenAccessRejected(RoutingContext ctx, String detail,
+                                                     URNGenerator urnGenerator) {
+
+    send(ctx,
+        HttpStatusCode.FORBIDDEN_ACCESS_REJECTED, detail, null, null, urnGenerator);
+  }
+
   // --- Error shortcuts ---
 
   public static void sendError(
