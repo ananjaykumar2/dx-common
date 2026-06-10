@@ -22,7 +22,8 @@ public class Condition {
   public enum Operator {
     EQUALS("="), NOT_EQUALS("!="), GREATER(">"), LESS("<"), GREATER_EQUALS(">="), LESS_EQUALS("<="),
     LIKE("LIKE"), IN("IN"), NOT_IN("NOT IN"), BETWEEN("BETWEEN"),
-    IS_NULL("IS NULL"), IS_NOT_NULL("IS NOT NULL");
+    IS_NULL("IS NULL"), IS_NOT_NULL("IS NOT NULL"),
+    SIMILARITY("%");
 
     private final String symbol;
 
@@ -136,6 +137,8 @@ public class Condition {
             column + " BETWEEN ? AND ?";
         case IS_NULL, IS_NOT_NULL ->
             column + " " + operator.getSymbol();
+        case SIMILARITY ->
+            "similarity(" + column + ", $1) > $2";
       };
     }
   }
@@ -150,6 +153,13 @@ public class Condition {
         case EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS, LIKE -> {
           params.add(values.get(0));
           yield column + " " + operator.getSymbol() + " $" + params.size();
+        }
+        case SIMILARITY -> {
+          params.add(values.get(0));
+          String termParam = "$" + params.size();
+          params.add(values.get(1));
+          String thresholdParam = "$" + params.size();
+          yield "similarity(" + column + ", " + termParam + ") > " + thresholdParam;
         }
         case IN, NOT_IN -> {
           String placeholders = values.stream().map(value -> {

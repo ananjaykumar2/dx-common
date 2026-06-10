@@ -38,6 +38,7 @@ public class PaginationRequestBuilder {
   private String defaultSortBy = null;
   private String defaultOrder = "desc";
   private Map<String, String> apiToDbMap = Collections.emptyMap();
+  private Map<String, String> fuzzyFiltersDbMap = Collections.emptyMap();
 
   private PaginationRequestBuilder(RoutingContext ctx) {
     this.ctx = ctx;
@@ -95,6 +96,11 @@ public class PaginationRequestBuilder {
     return this;
   }
 
+  public PaginationRequestBuilder fuzzyFiltersDbMap(Map<String, String> fuzzyFiltersDbMap) {
+    this.fuzzyFiltersDbMap = fuzzyFiltersDbMap != null ? fuzzyFiltersDbMap : Collections.emptyMap();
+    return this;
+  }
+
   public PaginatedRequest build() {
     Set<String> allowedKeys = getAllowedQueryParams();
 
@@ -122,18 +128,28 @@ public class PaginationRequestBuilder {
       mappedFilters.putAll(additionalFilters);
     }
 
+    Map<String, String> mappedFuzzyFilters = new HashMap<>();
+    fuzzyFiltersDbMap.forEach(
+        (apiParam, dbField) -> {
+          String value = getQueryParam(apiParam);
+          if (value != null && !value.isBlank()) {
+            mappedFuzzyFilters.put(dbField, value);
+          }
+        });
+
     List<TemporalRequest> temporalRequests = extractTemporalRequests();
     List<OrderBy> orderByList = extractSortOrders();
 
     LOGGER.debug(
-        "Pagination built with page: {}, size: {}, filters: {}, temporal: {}, sort: {}",
+        "Pagination built with page: {}, size: {}, filters: {}, fuzzyFilters: {}, temporal: {}, sort: {}",
         page,
         size,
         mappedFilters,
+        mappedFuzzyFilters,
         temporalRequests,
         orderByList);
 
-    return new PaginatedRequest(page, size, mappedFilters, temporalRequests, orderByList);
+    return new PaginatedRequest(page, size, mappedFilters, temporalRequests, orderByList, mappedFuzzyFilters);
   }
 
   private List<TemporalRequest> extractTemporalRequests() {
@@ -215,6 +231,7 @@ public class PaginationRequestBuilder {
 
   private Set<String> getAllowedQueryParams() {
     Set<String> allowedKeys = new HashSet<>(allowedFiltersDbMap.keySet());
+    allowedKeys.addAll(fuzzyFiltersDbMap.keySet());
     allowedKeys.add("page");
     allowedKeys.add("size");
     allowedKeys.add("time");

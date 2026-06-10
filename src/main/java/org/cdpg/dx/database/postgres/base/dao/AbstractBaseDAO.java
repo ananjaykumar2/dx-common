@@ -215,7 +215,7 @@ public abstract class AbstractBaseDAO<T extends BaseEntity<T>> implements BaseDA
     int size = request.size() > 0 ? request.size() : 10;
     int offset = (page - 1) * size;
 
-    Condition condition = fromFilters(request.filters(), request.temporalRequests());
+    Condition condition = fromFilters(request.filters(), request.temporalRequests(), request.fuzzyFilters());
     List<OrderBy> orderBy = request.orderByList();
 
     LOGGER.debug("Preparing to execute paginated query for table: {}", tableName);

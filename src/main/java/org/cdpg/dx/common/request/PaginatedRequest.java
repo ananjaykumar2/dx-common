@@ -9,4 +9,5 @@ public record PaginatedRequest(
     int size,
     Map<String, Object> filters,
     List<TemporalRequest> temporalRequests,
-    List<OrderBy> orderByList) {}
+    List<OrderBy> orderByList,
+    Map<String, String> fuzzyFilters) {}

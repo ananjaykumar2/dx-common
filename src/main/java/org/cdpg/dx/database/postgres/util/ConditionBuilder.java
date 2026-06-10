@@ -12,7 +12,12 @@ public class ConditionBuilder {
   private static final Logger LOGGER = LogManager.getLogger(ConditionBuilder.class);
 
   public static Condition fromFilters(
-          Map<String, ?> filters, List<TemporalRequest> temporalRequests) {
+      Map<String, ?> filters, List<TemporalRequest> temporalRequests) {
+    return fromFilters(filters, temporalRequests, null);
+  }
+
+  public static Condition fromFilters(
+          Map<String, ?> filters, List<TemporalRequest> temporalRequests, Map<String, String> fuzzyFilters) {
     List<Condition> conditions = new ArrayList<>();
 
     LOGGER.info("Building conditions from filters: {}", filters);
@@ -81,6 +86,16 @@ public class ConditionBuilder {
             LOGGER.warn("Unsupported temporal relation: {}", rel);
         }
       }
+    }
+
+    // Add fuzzy (pg_trgm similarity) conditions
+    if (fuzzyFilters != null) {
+      fuzzyFilters.forEach((col, term) -> {
+        if (term != null && !term.isBlank()) {
+          conditions.add(new Condition(col, Condition.Operator.SIMILARITY,
+              List.of(term, Constants.DEFAULT_FUZZY_SIMILARITY_THRESHOLD)));
+        }
+      });
     }
 
     return conditions.isEmpty()
