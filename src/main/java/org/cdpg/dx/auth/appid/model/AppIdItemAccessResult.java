@@ -7,13 +7,17 @@ public record AppIdItemAccessResult(
     String iid,
     String accessPolicy,
     String resourceServerJson,
-    String policiesJson) {
+    String policiesJson,
+    boolean hasOwnerAccess,
+    boolean hasAdminAccess) {
 
   public static AppIdItemAccessResult fromProto(CheckItemAccessResponse resp) {
     return new AppIdItemAccessResult(
         resp.getIid(),
         resp.getAccessPolicy(),
         resp.getResourceServerJson(),
-        resp.getPoliciesJson());
+        resp.getPoliciesJson(),
+        resp.getHasOwnerAccess(),
+        resp.getHasAdminAccess());
   }
 }
