@@ -6,4 +6,7 @@ public class Constants {
   public static final String DEFAULT_SORTING_ORDER = "DESC";
   public static final String DEFAULT_SORTING_FIELD = "created_at";
   public static final String SERVICE_ADDRESS_KEY = "serviceAddress";
+
+  /** Default pg_trgm similarity threshold for fuzzy search (0-1). Lower = more lenient. */
+  public static final double DEFAULT_FUZZY_SIMILARITY_THRESHOLD = 0.2;
 }
