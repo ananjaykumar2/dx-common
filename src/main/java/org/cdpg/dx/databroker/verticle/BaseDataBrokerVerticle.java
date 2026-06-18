@@ -60,6 +60,7 @@ public abstract class BaseDataBrokerVerticle extends AbstractVerticle {
     int networkRecoveryInterval = config().getInteger("networkRecoveryInterval");
     String amqpUrl = config().getString("brokerAmqpIp");
     int amqpPort = config().getInteger("brokerAmqpPort");
+    String isSSL = config().getString("portSsl", "false");
 
     // Configure RabbitMQ options
     RabbitMQOptions rabbitMQOptions = new RabbitMQOptions();
@@ -90,6 +91,11 @@ public abstract class BaseDataBrokerVerticle extends AbstractVerticle {
     webConfig.setDefaultHost(dataBrokerIp);
     webConfig.setDefaultPort(dataBrokerManagementPort);
     webConfig.setKeepAliveTimeout(86400000);
+    if (isSSL.equals("true")) {
+      webConfig.setSsl(true);
+    } else {
+      webConfig.setSsl(false);
+    }
 
     // Create clients
     RabbitMQClient.create(vertx, rabbitMQOptions);
