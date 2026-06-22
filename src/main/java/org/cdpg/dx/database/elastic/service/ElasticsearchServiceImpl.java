@@ -30,6 +30,7 @@ import co.elastic.clients.elasticsearch.core.CountRequest;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import co.elastic.clients.elasticsearch.core.DeleteRequest;
 import co.elastic.clients.elasticsearch.core.ExistsRequest;
+import co.elastic.clients.elasticsearch.core.GetRequest;
 import co.elastic.clients.elasticsearch.core.IndexRequest;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
@@ -314,6 +315,33 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
   @Override
   public Future<ElasticsearchResponse> getSingleDocument(String index, QueryModel queryModel) {
     return validateIndex(index).compose(v -> performSingleSearch(index, queryModel));
+  }
+
+  @Override
+  public Future<ElasticsearchResponse> getDocumentById(String index, String id) {
+    return validateIndex(index)
+        .compose(v -> validateId(id))
+        .compose(v -> executeGetById(index, id));
+  }
+
+  private Future<ElasticsearchResponse> executeGetById(String index, String id) {
+    Promise<ElasticsearchResponse> promise = Promise.promise();
+    GetRequest req = GetRequest.of(g -> g.index(index).id(id));
+    asyncClient
+        .get(req, ObjectNode.class)
+        .whenComplete(
+            (resp, err) -> {
+              if (err != null) {
+                promise.fail(new RuntimeException("Get by ID error", err));
+              } else if (!resp.found()) {
+                promise.complete(new ElasticsearchResponse());
+              } else {
+                JsonObject source = JsonObject.mapFrom(resp.source());
+                source.remove(SUMMARY_KEY);
+                promise.complete(new ElasticsearchResponse(resp.id(), new JsonObject(source.toString())));
+              }
+            });
+    return promise.future();
   }
 
   @Override
