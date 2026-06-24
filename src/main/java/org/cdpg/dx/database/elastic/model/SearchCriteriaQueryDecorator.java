@@ -1,6 +1,26 @@
 package org.cdpg.dx.database.elastic.model;
 
-import static org.cdpg.dx.database.elastic.util.Constants.*;
+import static org.cdpg.dx.database.elastic.util.Constants.AFTER_RANGE;
+import static org.cdpg.dx.database.elastic.util.Constants.AFTER_TEMPORAL;
+import static org.cdpg.dx.database.elastic.util.Constants.BEFORE_RANGE;
+import static org.cdpg.dx.database.elastic.util.Constants.BEFORE_TEMPORAL;
+import static org.cdpg.dx.database.elastic.util.Constants.BETWEEN_RANGE;
+import static org.cdpg.dx.database.elastic.util.Constants.BETWEEN_TEMPORAL;
+import static org.cdpg.dx.database.elastic.util.Constants.CASE_INSENSITIVE;
+import static org.cdpg.dx.database.elastic.util.Constants.DATA_UPLOAD_STATUS;
+import static org.cdpg.dx.database.elastic.util.Constants.DESCRIPTION_ATTR;
+import static org.cdpg.dx.database.elastic.util.Constants.FIELD;
+import static org.cdpg.dx.database.elastic.util.Constants.FILE_FORMAT;
+import static org.cdpg.dx.database.elastic.util.Constants.FLATTENED_TERM;
+import static org.cdpg.dx.database.elastic.util.Constants.GREATER_THAN;
+import static org.cdpg.dx.database.elastic.util.Constants.GREATER_THAN_EQUALS;
+import static org.cdpg.dx.database.elastic.util.Constants.KEYWORD_KEY;
+import static org.cdpg.dx.database.elastic.util.Constants.LESS_THAN;
+import static org.cdpg.dx.database.elastic.util.Constants.LESS_THAN_EQUALS;
+import static org.cdpg.dx.database.elastic.util.Constants.LOCATION;
+import static org.cdpg.dx.database.elastic.util.Constants.TAGS;
+import static org.cdpg.dx.database.elastic.util.Constants.TERM;
+import static org.cdpg.dx.database.elastic.util.Constants.VALUE;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -87,6 +107,14 @@ public class SearchCriteriaQueryDecorator implements ElasticsearchQueryDecorator
   private QueryModel buildTermQuery(String field, List<Object> values) {
     List<QueryModel> shouldQueries = new ArrayList<>();
     for (Object valueObj : values) {
+
+      if (DATA_UPLOAD_STATUS.equals(field)) {
+        shouldQueries.add(
+            new QueryModel(QueryType.TERM)
+                .setQueryParameters(Map.of(FIELD, field, VALUE, valueObj)));
+        continue;
+      }
+
       String value = valueObj.toString();
       if (DESCRIPTION_ATTR.equals(field) || field.startsWith(LOCATION)) {
         shouldQueries.add(
