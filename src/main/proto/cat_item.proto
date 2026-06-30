@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package org.cdpg.dx.cat.item.v1;
+
+option go_package = "github.com/datakaveri/dx-common-go/grpc/catitempb";
+option java_multiple_files  = true;
+option java_package         = "org.cdpg.dx.cat.item.v1";
+option java_outer_classname = "CatItemProto";
+
+// ── GetItem ────────────────────────────────────────────────────────────────
+// gRPC mirror of HTTP  GET /iudx/v2/cat/item.
+// The caller (a service, authenticated via the gRPC ServiceAuthInterceptor)
+// acts on behalf of an end user whose identity it forwards here.
+message GetItemRequest {
+  string          item_id         = 1;  // catalogue item UUID (HTTP query param `id`)
+  string          user_id         = 2;  // acting user's sub; empty = anonymous (public items only)
+  repeated string roles           = 3;  // acting user's realm roles — drives ownership/admin checks
+  string          organization_id = 4;  // acting user's org UUID; empty → server resolves from Keycloak by user_id
+}
+
+message GetItemResponse {
+  bool   success    = 1;
+  string error_code = 2;  // empty on success; NOT_FOUND | UNAUTHORIZED | FORBIDDEN | INTERNAL_ERROR
+  string item_json  = 3;  // the single matched catalogue document, JSON-encoded
+  int32  total_hits = 4;
+}
+
+// ── PatchItem ──────────────────────────────────────────────────────────────
+// gRPC mirror of HTTP  PATCH /iudx/v2/cat/item.
+message PatchItemRequest {
+  string          item_id         = 1;  // catalogue item UUID (HTTP query param `id`)
+  string          user_id         = 2;  // acting user's sub
+  repeated string roles           = 3;  // acting user's realm roles
+  string          organization_id = 4;  // acting user's org UUID; empty → server resolves from Keycloak by user_id
+  string          patch_json      = 5;  // JSON object of fields to patch
+}
+
+message PatchItemResponse {
+  bool   success    = 1;
+  string error_code = 2;  // empty on success; BAD_REQUEST | NOT_FOUND | FORBIDDEN | INTERNAL_ERROR
+  string item_id    = 3;
+  string item_json  = 4;  // pre-patch item source (mirrors ElasticsearchResponse.getSource())
+}
+
+// ── Service ────────────────────────────────────────────────────────────────
+service CatItemService {
+  rpc GetItem   (GetItemRequest)   returns (GetItemResponse);
+  rpc PatchItem (PatchItemRequest) returns (PatchItemResponse);
+}
