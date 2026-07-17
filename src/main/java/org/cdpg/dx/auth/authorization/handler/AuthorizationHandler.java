@@ -22,15 +22,17 @@ import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 import org.cdpg.dx.keycloak.config.KeycloakConstants;
 
+import static org.cdpg.dx.auth.common.AuthConstants.WRONG_ROLE;
+
 /**
- * Authorization entry point. All methods are static — this class has no state.
- * Reads the Vert.x {@link User} set by {@link AuthenticationHandler} and enforces scope
- * or role requirements.
+ * Authorization entry point. All methods are static — this class has no state. Reads the Vert.x
+ * {@link User} set by {@link AuthenticationHandler} and enforces scope or role requirements.
  *
  * <p>All three auth paths (plain JWT, delegation, app credentials) pre-compute a {@code "scopes"}
  * array in the User principal, so {@link #forScopes} works uniformly across all of them.
  *
  * <p>Usage at route level:
+ *
  * <pre>
  *   router.get("/api/data")
  *       .handler(authHandler)
@@ -45,18 +47,18 @@ public final class AuthorizationHandler {
   /**
    * @deprecated No longer populated. All auth paths now set {@code ctx.user()} directly.
    */
-  @Deprecated
-  public static final String PRINCIPAL_KEY = "dxPrincipal";
+  @Deprecated public static final String PRINCIPAL_KEY = "dxPrincipal";
 
   private AuthorizationHandler() {}
 
   /**
-   * Passes if the user's pre-computed {@code "scopes"} contain <em>any</em> of the required
-   * scopes. Works uniformly for plain JWT, delegation, and app-credential users.
+   * Passes if the user's pre-computed {@code "scopes"} contain <em>any</em> of the required scopes.
+   * Works uniformly for plain JWT, delegation, and app-credential users.
    */
   public static Handler<RoutingContext> forScopes(String... required) {
     Objects.requireNonNull(required, "required");
-    if (required.length == 0) throw new IllegalArgumentException("forScopes requires at least one scope");
+    if (required.length == 0)
+      throw new IllegalArgumentException("forScopes requires at least one scope");
 
     Set<String> requiredSet = new HashSet<>(Arrays.asList(required));
 
@@ -64,59 +66,62 @@ public final class AuthorizationHandler {
       User user = getUser(ctx);
       if (user == null) return;
 
-      JsonArray scopes = user.principal().getJsonArray(KeycloakConstants.CLAIM_SCOPES, new JsonArray());
+      JsonArray scopes =
+          user.principal().getJsonArray(KeycloakConstants.CLAIM_SCOPES, new JsonArray());
       LOGGER.debug("Effective scopes: {}", scopes);
 
-      boolean match = scopes.stream()
-          .map(Object::toString)
-          .anyMatch(requiredSet::contains);
+      boolean match = scopes.stream().map(Object::toString).anyMatch(requiredSet::contains);
 
       if (match) {
         ctx.next();
       } else {
-        ctx.fail(new DxForbiddenException(AuthConstants.INSUFFICIENT_SCOPE));
+        LOGGER.warn(
+            "Authorization denied: required scopes={}, path={}", requiredSet, ctx.request().path());
+        ctx.fail(new DxForbiddenException(WRONG_ROLE));
       }
     };
   }
 
-  /**
-   * Passes if the user's {@code realm_access.roles} contain <em>any</em> of the required roles.
-   */
+  /** Passes if the user's {@code realm_access.roles} contain <em>any</em> of the required roles. */
   public static Handler<RoutingContext> forRoles(DxRole... required) {
     Objects.requireNonNull(required, "required");
-    if (required.length == 0) throw new IllegalArgumentException("forRoles requires at least one role");
+    if (required.length == 0)
+      throw new IllegalArgumentException("forRoles requires at least one role");
 
-    Set<String> requiredNames = Arrays.stream(required)
-        .map(DxRole::value)
-        .collect(Collectors.toSet());
+    Set<String> requiredNames =
+        Arrays.stream(required).map(DxRole::value).collect(Collectors.toSet());
 
     return ctx -> {
       User user = getUser(ctx);
       if (user == null) return;
 
-      JsonArray roles = user.principal()
-          .getJsonObject(KeycloakConstants.CLAIM_REALM_ACCESS, new JsonObject())
-          .getJsonArray(KeycloakConstants.CLAIM_ROLES, new JsonArray());
+      JsonArray roles =
+          user.principal()
+              .getJsonObject(KeycloakConstants.CLAIM_REALM_ACCESS, new JsonObject())
+              .getJsonArray(KeycloakConstants.CLAIM_ROLES, new JsonArray());
 
-      boolean match = roles.stream()
-          .map(Object::toString)
-          .anyMatch(requiredNames::contains);
+      boolean match = roles.stream().map(Object::toString).anyMatch(requiredNames::contains);
 
       if (match) {
         ctx.next();
       } else {
-        ctx.fail(new DxForbiddenException(AuthConstants.WRONG_ROLE));
+        LOGGER.warn(
+            "Authorization denied: required roles={}, path={}",
+            requiredNames,
+            ctx.request().path());
+        ctx.fail(new DxForbiddenException(WRONG_ROLE));
       }
     };
   }
 
   /**
-   * Walks rules in order — highest authority first (PLATFORM → ORG → SELF). The first matching
-   * rule wins and publishes an {@link AuthorizationContext} at {@link AuthorizationContext#KEY}.
+   * Walks rules in order — highest authority first (PLATFORM → ORG → SELF). The first matching rule
+   * wins and publishes an {@link AuthorizationContext} at {@link AuthorizationContext#KEY}.
    */
   public static Handler<RoutingContext> forScopesWithContext(ScopeRule... rules) {
     Objects.requireNonNull(rules, "rules");
-    if (rules.length == 0) throw new IllegalArgumentException("forScopesWithContext requires at least one rule");
+    if (rules.length == 0)
+      throw new IllegalArgumentException("forScopesWithContext requires at least one rule");
 
     return ctx -> {
       User user = getUser(ctx);
@@ -124,31 +129,34 @@ public final class AuthorizationHandler {
 
       JsonObject principal = user.principal();
       JsonArray scopesArr = principal.getJsonArray(KeycloakConstants.CLAIM_SCOPES, new JsonArray());
-      Set<String> effectiveScopes = scopesArr.stream()
-          .map(Object::toString)
-          .collect(Collectors.toSet());
+      Set<String> effectiveScopes =
+          scopesArr.stream().map(Object::toString).collect(Collectors.toSet());
 
-      String sub   = principal.getString(KeycloakConstants.CLAIM_SUB);
+      String sub = principal.getString(KeycloakConstants.CLAIM_SUB);
       String orgId = principal.getString(KeycloakConstants.ORGANISATION_ID);
 
       for (ScopeRule rule : rules) {
         if (effectiveScopes.contains(rule.scope())) {
-          AuthorizationContext authCtx = switch (rule.level()) {
-            case PLATFORM -> AuthorizationContext.platform(rule.scope());
-            case ORG      -> AuthorizationContext.org(rule.scope(), orgId);
-            case SELF     -> AuthorizationContext.self(rule.scope(), sub);
-          };
+          AuthorizationContext authCtx =
+              switch (rule.level()) {
+                case PLATFORM -> AuthorizationContext.platform(rule.scope());
+                case ORG -> AuthorizationContext.org(rule.scope(), orgId);
+                case SELF -> AuthorizationContext.self(rule.scope(), sub);
+              };
           ctx.put(AuthorizationContext.KEY, authCtx);
           ctx.next();
           return;
         }
       }
-      ctx.fail(new DxForbiddenException(AuthConstants.INSUFFICIENT_SCOPE));
+      LOGGER.warn("Authorization denied: no matching scope rule, path={}", ctx.request().path());
+      ctx.fail(new DxForbiddenException(WRONG_ROLE));
     };
   }
 
-  /** Passes immediately when {@code isKycRequired} is false. Otherwise verifies the
-   * {@code kyc_verified} claim in the user principal. */
+  /**
+   * Passes immediately when {@code isKycRequired} is false. Otherwise verifies the {@code
+   * kyc_verified} claim in the user principal.
+   */
   public static Handler<RoutingContext> kycVerification(boolean isKycRequired) {
     if (!isKycRequired) {
       return RoutingContext::next;
@@ -158,10 +166,13 @@ public final class AuthorizationHandler {
       if (user == null) return;
       JsonObject principal = user.principal();
       if (!principal.containsKey(KeycloakConstants.KYC_VERIFIED)) {
+        LOGGER.warn(
+            "Authorization denied: missing kyc_verified claim, path={}", ctx.request().path());
         ctx.fail(new DxForbiddenException("Missing KYC verification status."));
         return;
       }
       if (!principal.getBoolean(KeycloakConstants.KYC_VERIFIED, false)) {
+        LOGGER.warn("Authorization denied: KYC not verified, path={}", ctx.request().path());
         ctx.fail(new DxForbiddenException("User's KYC is not verified."));
         return;
       }
@@ -172,6 +183,7 @@ public final class AuthorizationHandler {
   private static User getUser(RoutingContext ctx) {
     User user = ctx.user();
     if (user == null) {
+      LOGGER.warn("Authorization denied: no authenticated user, path={}", ctx.request().path());
       ctx.fail(new DxUnauthorizedException(AuthConstants.NO_AUTHENTICATED_USER));
       return null;
     }

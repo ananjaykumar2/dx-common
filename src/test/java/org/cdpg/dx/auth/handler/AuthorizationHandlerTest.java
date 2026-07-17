@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import io.vertx.core.Handler;
+import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
@@ -37,6 +38,9 @@ class AuthorizationHandlerTest {
     private User currentUser;
 
     FakeCtx() {
+      HttpServerRequest request = mock(HttpServerRequest.class);
+      when(request.path()).thenReturn("/test/path");
+      when(mock.request()).thenReturn(request);
       when(mock.user()).thenAnswer(inv -> currentUser);
       when(mock.get(anyString())).thenAnswer(inv -> data.get(inv.<String>getArgument(0)));
       when(mock.put(anyString(), any()))
