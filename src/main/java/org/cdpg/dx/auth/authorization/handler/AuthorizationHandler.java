@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cdpg.dx.auth.authentication.handler.AuthenticationHandler;
+import org.cdpg.dx.auth.authorization.model.AuthLevel;
 import org.cdpg.dx.auth.authorization.model.AuthorizationContext;
 import org.cdpg.dx.auth.authorization.model.ScopeRule;
 import org.cdpg.dx.auth.common.AuthConstants;
@@ -22,6 +23,7 @@ import org.cdpg.dx.common.exception.DxForbiddenException;
 import org.cdpg.dx.common.exception.DxUnauthorizedException;
 import org.cdpg.dx.keycloak.config.KeycloakConstants;
 
+import static org.cdpg.dx.auth.common.AuthConstants.MISSING_ORG_CONTEXT;
 import static org.cdpg.dx.auth.common.AuthConstants.WRONG_ROLE;
 
 /**
@@ -135,19 +137,41 @@ public final class AuthorizationHandler {
       String sub = principal.getString(KeycloakConstants.CLAIM_SUB);
       String orgId = principal.getString(KeycloakConstants.ORGANISATION_ID);
 
+      boolean missingOrgContext = false;
+
       for (ScopeRule rule : rules) {
-        if (effectiveScopes.contains(rule.scope())) {
-          AuthorizationContext authCtx =
-              switch (rule.level()) {
-                case PLATFORM -> AuthorizationContext.platform(rule.scope());
-                case ORG -> AuthorizationContext.org(rule.scope(), orgId);
-                case SELF -> AuthorizationContext.self(rule.scope(), sub);
-              };
-          ctx.put(AuthorizationContext.KEY, authCtx);
-          ctx.next();
-          return;
+        if (!effectiveScopes.contains(rule.scope())) continue;
+
+        if (rule.level() == AuthLevel.ORG && (orgId == null || orgId.isBlank())) {
+          LOGGER.warn(
+              "Skipping org-level scope match: token has scope={} but no organisation_id claim,"
+                  + " path={}",
+              rule.scope(),
+              ctx.request().path());
+          missingOrgContext = true;
+          continue;
         }
+
+        AuthorizationContext authCtx =
+            switch (rule.level()) {
+              case PLATFORM -> AuthorizationContext.platform(rule.scope());
+              case ORG -> AuthorizationContext.org(rule.scope(), orgId);
+              case SELF -> AuthorizationContext.self(rule.scope(), sub);
+            };
+        ctx.put(AuthorizationContext.KEY, authCtx);
+        ctx.next();
+        return;
       }
+
+      if (missingOrgContext) {
+        LOGGER.warn(
+            "Authorization denied: matching scope held but organisation context missing,"
+                + " path={}",
+            ctx.request().path());
+        ctx.fail(new DxForbiddenException(MISSING_ORG_CONTEXT));
+        return;
+      }
+
       LOGGER.warn("Authorization denied: no matching scope rule, path={}", ctx.request().path());
       ctx.fail(new DxForbiddenException(WRONG_ROLE));
     };

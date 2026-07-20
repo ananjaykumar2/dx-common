@@ -26,6 +26,7 @@ public final class AuthConstants {
   // --- Error: Authorization ---
   public static final String INSUFFICIENT_SCOPE    = "Insufficient scope";
   public static final String WRONG_ROLE            = "User does not hold the required role";
+  public static final String MISSING_ORG_CONTEXT   = "User holds an organisation-scoped role but the token carries no organisation context";
   public static final String NO_AUTHENTICATED_USER = "No authenticated user";
   public static final String KYC_NOT_VERIFIED      = "KYC verification required";
 
