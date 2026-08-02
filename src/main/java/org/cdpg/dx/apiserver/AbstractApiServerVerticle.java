@@ -20,6 +20,7 @@ import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.json.jackson.DatabindCodec;
+import io.vertx.core.json.pointer.JsonPointer;
 import io.vertx.core.net.JksOptions;
 import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
@@ -29,7 +30,10 @@ import io.vertx.ext.web.handler.CorsHandler;
 import io.vertx.ext.web.handler.TimeoutHandler;
 import io.vertx.ext.web.openapi.RouterBuilder;
 import io.vertx.ext.web.openapi.RouterBuilderOptions;
+import io.vertx.json.schema.SchemaParser;
+import io.vertx.json.schema.SchemaRouter;
 import io.vertx.serviceproxy.HelperUtils;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,6 +51,7 @@ import org.cdpg.dx.common.HttpStatusCode;
 import org.cdpg.dx.common.URNGenerator;
 import org.cdpg.dx.common.config.HttpConstants;
 import org.cdpg.dx.common.util.BlockingExecutionUtil;
+import org.cdpg.dx.common.util.SchemaBranchResolver;
 
 /**
  * Abstract base class for OpenAPI-driven API server verticles.
@@ -327,7 +332,7 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
                 LOGGER.debug("Configuring CORS and error handlers...");
                 configureCorsHandler(router);
                 putCommonResponseHeaders(router);
-                configureFailureHandler(router);
+                configureFailureHandler(router, routerBuilder);
                 configureErrorHandlers(router);
 
                 // Documentation routes
@@ -492,13 +497,38 @@ public abstract class AbstractApiServerVerticle extends AbstractVerticle {
     }
   }
 
-  private void configureFailureHandler(Router router) {
-    String ngsildPattern = getNgsildPathPattern();
-    if (ngsildPattern != null) {
-      router.route().failureHandler(new FailureHandler(this.urnGenerator, ngsildPattern));
-    } else {
-      router.route().failureHandler(new FailureHandler(this.urnGenerator));
+  private void configureFailureHandler(Router router, RouterBuilder routerBuilder) {
+    router
+        .route()
+        .failureHandler(
+            new FailureHandler(
+                this.urnGenerator, getNgsildPathPattern(), branchResolver(routerBuilder)));
+  }
+
+  /**
+   * Lets the failure handler re-validate the branches of a failed {@code oneOf}, which is the only
+   * way to report which field was wrong instead of just "no schema matches".
+   *
+   * <p>The branches of a bundled spec are refs to internal {@code urn:vertxschemas:} ids that only
+   * this router's own {@code SchemaRouter} can resolve, so the capability has to come from here.
+   * Resolution failures are swallowed: a missing branch costs detail in an error message, which is
+   * never worth failing a request over.
+   */
+  private SchemaBranchResolver branchResolver(RouterBuilder routerBuilder) {
+    SchemaRouter schemaRouter = routerBuilder.getSchemaRouter();
+    SchemaParser schemaParser = routerBuilder.getSchemaParser();
+    if (schemaRouter == null || schemaParser == null) {
+      return null;
     }
+    return (ref, scope) -> {
+      try {
+        return schemaRouter.resolveCachedSchema(
+            JsonPointer.fromURI(URI.create(ref)), scope, schemaParser);
+      } catch (RuntimeException unresolvable) {
+        LOGGER.debug("Could not resolve schema branch {} for error detail", ref, unresolvable);
+        return null;
+      }
+    };
   }
 
   private void printDeployedEndpoints(Router router) {
