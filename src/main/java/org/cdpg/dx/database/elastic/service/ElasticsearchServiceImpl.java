@@ -42,12 +42,16 @@ import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import co.elastic.clients.json.JsonData;
 import co.elastic.clients.json.JsonpMapper;
 import co.elastic.clients.json.JsonpMapperFeatures;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.EncodeException;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.jackson.DatabindCodec;
 import jakarta.json.stream.JsonGenerator;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -80,10 +84,42 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
 
   static ElasticClient client;
   private static ElasticsearchAsyncClient asyncClient;
+  private static volatile ObjectMapper nullPreservingMapper;
 
   public ElasticsearchServiceImpl(ElasticClient client) {
     ElasticsearchServiceImpl.client = client;
     asyncClient = client.getClient();
+  }
+
+  /**
+   * {@link JsonObject#encode()} serializes via Vert.x's shared, process-wide {@link
+   * DatabindCodec#mapper()}, which the API server configures with {@code NON_EMPTY} inclusion for
+   * response bodies. Using that mapper here would silently drop explicit null values (e.g. {@code
+   * "inactive_date": null}) before the document ever reaches Elasticsearch. This clones the shared
+   * mapper (preserving date formatting/naming config) and overrides inclusion back to {@code
+   * ALWAYS} so ES write payloads keep null values the caller explicitly sent.
+   */
+  private static ObjectMapper nullPreservingMapper() {
+    ObjectMapper mapper = nullPreservingMapper;
+    if (mapper == null) {
+      synchronized (ElasticsearchServiceImpl.class) {
+        mapper = nullPreservingMapper;
+        if (mapper == null) {
+          mapper = DatabindCodec.mapper().copy();
+          mapper.setSerializationInclusion(JsonInclude.Include.ALWAYS);
+          nullPreservingMapper = mapper;
+        }
+      }
+    }
+    return mapper;
+  }
+
+  private static String encodePreservingNulls(JsonObject json) {
+    try {
+      return nullPreservingMapper().writeValueAsString(json.getMap());
+    } catch (Exception e) {
+      throw new EncodeException("Failed to encode JSON object", e);
+    }
   }
 
   @Override
@@ -336,9 +372,10 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
               } else if (!resp.found()) {
                 promise.complete(new ElasticsearchResponse());
               } else {
-                JsonObject source = JsonObject.mapFrom(resp.source());
+                JsonObject source =
+                    resp.source() != null ? new JsonObject(resp.source().toString()) : new JsonObject();
                 source.remove(SUMMARY_KEY);
-                promise.complete(new ElasticsearchResponse(resp.id(), new JsonObject(source.toString())));
+                promise.complete(new ElasticsearchResponse(resp.id(), source));
               }
             });
     return promise.future();
@@ -619,10 +656,10 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
               } else {
                 Hit<ObjectNode> hit = resp.hits().hits().getFirst();
                 LOGGER.debug("Single document found with ID: {}", hit.id());
-                JsonObject source = JsonObject.mapFrom(hit.source());
+                JsonObject source =
+                    hit.source() != null ? new JsonObject(hit.source().toString()) : new JsonObject();
                 source.remove(SUMMARY_KEY);
-                ElasticsearchResponse response =
-                    new ElasticsearchResponse(hit.id(), new JsonObject(source.toString()));
+                ElasticsearchResponse response = new ElasticsearchResponse(hit.id(), source);
                 promise.complete(response);
               }
             });
@@ -636,7 +673,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     models.forEach(
         queryModel -> {
           JsonObject doc = queryModel.extractDocumentFromQueryModel();
-          String rawJson = doc.encode();
+          String rawJson = encodePreservingNulls(doc);
           JsonData jsonData = JsonData.fromJson(rawJson);
 
           bulkBuilder.operations(
@@ -672,7 +709,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     models.forEach(
         queryModel -> {
           JsonObject doc = queryModel.extractDocumentFromQueryModel();
-          String rawJson = doc.encode();
+          String rawJson = encodePreservingNulls(doc);
           JsonData jsonData = JsonData.fromJson(rawJson);
 
           bulkBuilder.operations(
@@ -748,7 +785,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         new IndexRequest.Builder<JsonData>()
             .index(index)
             .id(id)
-            .document(JsonData.fromJson(doc.encode()))
+            .document(JsonData.fromJson(encodePreservingNulls(doc)))
             .build();
 
     asyncClient
@@ -776,7 +813,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
       builder.script(script);
     } else {
       JsonObject doc = model.extractDocumentFromQueryModel();
-      builder.doc(JsonData.fromJson(doc.encode()));
+      builder.doc(JsonData.fromJson(encodePreservingNulls(doc)));
     }
 
     UpdateRequest<String, JsonData> request = builder.build();

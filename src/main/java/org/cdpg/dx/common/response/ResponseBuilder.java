@@ -3,7 +3,11 @@ package org.cdpg.dx.common.response;
 import static org.cdpg.dx.common.config.CorsUtil.HEADER_ALLOW_ORIGIN;
 import static org.cdpg.dx.common.config.CorsUtil.allowedOrigins;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.json.EncodeException;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.jackson.DatabindCodec;
 import io.vertx.ext.web.RoutingContext;
 import org.cdpg.dx.common.HttpStatusCode;
 import org.cdpg.dx.common.URNGenerator;
@@ -37,6 +41,44 @@ public class ResponseBuilder {
 
   private ResponseBuilder() {}
 
+  private static volatile ObjectMapper nullPreservingMapper;
+
+  /**
+   * {@link JsonObject#mapFrom(Object)}/{@code encode()} serialize via Vert.x's shared,
+   * process-wide {@link DatabindCodec#mapper()}, which {@code AbstractApiServerVerticle}
+   * configures with {@code NON_EMPTY} inclusion so response bodies omit null/empty fields by
+   * default. That silently drops explicit null values nested inside a {@code result} payload
+   * (e.g. an item's {@code "inactive_date": null}). This clones the shared mapper (preserving its
+   * date-format/naming config) and overrides inclusion back to {@code ALWAYS} on the clone only,
+   * so callers that opt in via the {@code *PreservingNulls} methods below keep nested nulls
+   * without changing the default behavior of every other response.
+   */
+  private static ObjectMapper nullPreservingMapper() {
+    ObjectMapper mapper = nullPreservingMapper;
+    if (mapper == null) {
+      synchronized (ResponseBuilder.class) {
+        mapper = nullPreservingMapper;
+        if (mapper == null) {
+          mapper = DatabindCodec.mapper().copy();
+          mapper.setSerializationInclusion(JsonInclude.Include.ALWAYS);
+          nullPreservingMapper = mapper;
+        }
+      }
+    }
+    return mapper;
+  }
+
+  private static String encode(Object response, boolean preserveNulls) {
+    if (!preserveNulls) {
+      return JsonObject.mapFrom(response).encode();
+    }
+    try {
+      return nullPreservingMapper().writeValueAsString(response);
+    } catch (Exception e) {
+      throw new EncodeException("Failed to encode response", e);
+    }
+  }
+
   // --- Build DxResponse objects (for service-layer use) ---
 
   public static <T> DxResponse<T> success(
@@ -65,6 +107,17 @@ public class ResponseBuilder {
       T result,
       PaginationInfo pageInfo,
       URNGenerator urnGenerator) {
+    send(ctx, status, detail, result, pageInfo, urnGenerator, false);
+  }
+
+  private static <T> void send(
+      RoutingContext ctx,
+      HttpStatusCode status,
+      String detail,
+      T result,
+      PaginationInfo pageInfo,
+      URNGenerator urnGenerator,
+      boolean preserveNulls) {
     if (status == HttpStatusCode.NO_CONTENT) {
       ctx.response().setStatusCode(status.getValue()).end();
       return;
@@ -72,6 +125,7 @@ public class ResponseBuilder {
     String urn = urnGenerator.generateUrn(status.getPath());
     DxResponse<T> response =
         new DxResponse<>(urn, status.getDescription(), detail, result, pageInfo);
+    String body = encode(response, preserveNulls);
     String requestOrigin = ctx.request().getHeader("Origin");
     if (allowedOrigins != null
         && requestOrigin != null
@@ -82,12 +136,12 @@ public class ResponseBuilder {
           .putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
           .putHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
           .setStatusCode(status.getValue())
-          .end(JsonObject.mapFrom(response).encode());
+          .end(body);
     } else {
       ctx.response()
           .putHeader("Content-Type", "application/json")
           .setStatusCode(status.getValue())
-          .end(JsonObject.mapFrom(response).encode());
+          .end(body);
     }
   }
 
@@ -120,11 +174,32 @@ public class ResponseBuilder {
     send(ctx, HttpStatusCode.SUCCESS, detail, result, null, urnGenerator);
   }
 
+  // --- Success shortcuts that keep explicit nulls inside `result` (e.g. item payloads) ---
+
+  public static <R> void sendSuccessPreservingNulls(
+      RoutingContext ctx, R result, URNGenerator urnGenerator) {
+    send(ctx, HttpStatusCode.SUCCESS, null, result, null, urnGenerator, true);
+  }
+
+  public static <T> void sendSuccessPreservingNulls(
+      RoutingContext ctx,
+      String detail,
+      T result,
+      PaginationInfo pageInfo,
+      URNGenerator urnGenerator) {
+    send(ctx, HttpStatusCode.SUCCESS, detail, result, pageInfo, urnGenerator, true);
+  }
+
   // --- Created shortcuts ---
 
   public static <T> void sendCreated(
       RoutingContext ctx, String detail, T result, URNGenerator urnGenerator) {
     send(ctx, HttpStatusCode.CREATED, detail, result, null, urnGenerator);
+  }
+
+  public static <T> void sendCreatedPreservingNulls(
+      RoutingContext ctx, String detail, T result, URNGenerator urnGenerator) {
+    send(ctx, HttpStatusCode.CREATED, detail, result, null, urnGenerator, true);
   }
 
   public static void sendCreated(RoutingContext ctx, String detail, URNGenerator urnGenerator) {
